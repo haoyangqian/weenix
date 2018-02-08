@@ -149,7 +149,7 @@ bootstrap(int arg1, void *arg2)
         /* active the idle thread context */
         context_make_active(&idle_thread->kt_ctx);
 
-        panic("weenix returned to bootstrap()!!! BAD!!!\n");
+        //panic("weenix returned to bootstrap()!!! BAD!!!\n");
         return NULL;
 }
 
@@ -271,9 +271,8 @@ initproc_create(void)
 static void *
 initproc_run(int arg1, void *arg2)
 {
-        printf("initproc_run!\n");
-
-        return NULL;
+    run_proc_test();
+    return NULL;
 }
 
 /**

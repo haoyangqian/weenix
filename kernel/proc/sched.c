@@ -100,7 +100,15 @@ sched_queue_empty(ktqueue_t *q)
 int
 sched_cancellable_sleep_on(ktqueue_t *q)
 {
-        NOT_YET_IMPLEMENTED("PROCS: sched_cancellable_sleep_on");
+        ktqueue_enqueue(q, curthr);
+        curthr->kt_state = KT_SLEEP_CANCELLABLE;
+        sched_switch();
+
+        /* if the thread was cancelled, return -EINTR */
+        if(curthr->kt_cancelled == 1){
+                return -EINTR;
+        }
+
         return 0;
 }
 
@@ -116,7 +124,17 @@ sched_cancellable_sleep_on(ktqueue_t *q)
 void
 sched_cancel(struct kthread *kthr)
 {
-        NOT_YET_IMPLEMENTED("PROCS: sched_cancel");
+        kthr->kt_cancelled = 1;
+
+        KASSERT((kthr->kt_state == KT_SLEEP_CANCELLABLE 
+                || kthr->kt_state == KT_SLEEP )
+                && "kthr is not sleeping");
+        /* if the thraed's sleep can be cancelled, remove it from the 
+        wait queue, and make it runnable */
+        if(kthr->kt_state == KT_SLEEP_CANCELLABLE) {
+                ktqueue_remove(kthr->kt_wchan, kthr);
+                sched_make_runnable(kthr);
+        }
 }
 
 /*
@@ -158,7 +176,34 @@ sched_cancel(struct kthread *kthr)
 void
 sched_switch(void)
 {
-        NOT_YET_IMPLEMENTED("PROCS: sched_switch");
+        uint8_t old_ipl = intr_getipl();
+
+        intr_setipl(IPL_HIGH);
+
+        /* if the runq is empty, wait an interupt */
+        while(sched_queue_empty(&kt_runq)) {
+                intr_setipl(IPL_LOW);
+                intr_wait(); // wait until a interupt comes
+                intr_setipl(IPL_HIGH);
+        }
+
+        KASSERT(!sched_queue_empty(&kt_runq) && "the runq is still empty!!");
+
+        context_t *old_ctx = &curthr->kt_ctx;
+
+        /* get one thread from runq */
+        kthread_t* kthr = ktqueue_dequeue(&kt_runq);
+        KASSERT(kthr);
+
+        /* set curthr and curproc*/
+        curthr = kthr;
+        curproc = kthr->kt_proc;
+
+        /* switch the context */
+        context_switch(old_ctx, &curthr->kt_ctx);
+
+        intr_setipl(old_ipl);
+        
 }
 
 /*
@@ -177,7 +222,14 @@ sched_switch(void)
 void
 sched_make_runnable(kthread_t *thr)
 {
-        NOT_YET_IMPLEMENTED("PROCS: sched_make_runnable");
+        uint8_t old_ipl = intr_getipl();
+
+        intr_setipl(IPL_HIGH);
+
+        thr->kt_state = KT_RUN;
+        ktqueue_enqueue(&kt_runq, thr);
+
+        intr_setipl(old_ipl);
 }
 
 // Implementation is hidden. You will be provided with these at some point.

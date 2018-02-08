@@ -97,12 +97,12 @@ kthread_create(struct proc *p, kthread_func_t func, long arg1, void *arg2)
         thr->kt_state = KT_NO_STATE;
 
         /* init list links */
-        list_link_init(&k->kt_qlink);
-        list_link_init(&k->kt_plink);
-        list_insert_head(&p->p_threads, &k->kt_plink);
+        list_link_init(&thr->kt_qlink);
+        list_link_init(&thr->kt_plink);
+        list_insert_head(&p->p_threads, &thr->kt_plink);
 
         /* setup the context */
-        context_setup(thr->kt_ctx, func, arg1, arg2, k->kt_stack, DEFAULT_STACK_SIZE, p->p_pagedir);
+        context_setup(&thr->kt_ctx, func, arg1, arg2, thr->kt_kstack, DEFAULT_STACK_SIZE, p->p_pagedir);
         return thr;
 }
 
@@ -139,7 +139,7 @@ kthread_cancel(kthread_t *kthr, void *retval)
                 kthread_exit(retval);
         } else {
                 kthr->kt_cancelled = 1;
-                kthr->retval = retval;
+                kthr->kt_retval = retval;
 
                 /* if the sleep is cancellable, wake up the thread */
                 if(kthr->kt_state ==  KT_SLEEP_CANCELLABLE) {
@@ -166,7 +166,7 @@ kthread_cancel(kthread_t *kthr, void *retval)
 void
 kthread_exit(void *retval)
 {
-        curthr->retval = retval;
+        curthr->kt_retval = retval;
         curthr->kt_state = KT_EXITED;
         proc_thread_exited(retval);
 }

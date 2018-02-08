@@ -26,6 +26,8 @@
 #include "fs/vnode.h"
 #include "fs/file.h"
 
+#include "test/proc_test.h"
+
 proc_t *curproc = NULL; /* global */
 static slab_allocator_t *proc_allocator = NULL;
 
@@ -98,7 +100,7 @@ proc_create(char *name)
     char *myname = name ? name : "unnamed process";
     size_t size = MIN(strlen(myname), PROC_NAME_LEN - 1);
     strncpy(p->p_comm, myname, size);
-    p->p_comm[size] = '\n';
+    p->p_comm[size] = '\0';
 
     /* init thread list and children list*/
     list_init(&p->p_threads);
@@ -167,6 +169,7 @@ proc_cleanup(int status)
 {
     /* reparenting any children to the init process*/       
     if(!list_empty(&curproc->p_children)) {
+        /* the init process should not have any children at the time it exits */
         KASSERT(curproc != proc_initproc);
         
         proc_t *p;
@@ -272,7 +275,7 @@ proc_list()
 void
 proc_thread_exited(void *retval)
 {
-    proc_cleanup((int)(*retval));
+    proc_cleanup((int)(retval));
     curthr->kt_state = KT_EXITED;
     sched_switch();
 }
@@ -296,7 +299,7 @@ find_dead_child(proc_t *proc) {
 */
 static proc_t *
 find_specific_child(pid_t pid, proc_t *proc) {
-    if(list_empty(&proc->p->children)) return NULL;
+    if(list_empty(&proc->p_children)) return NULL;
     proc_t *p;
     list_iterate_begin(&proc->p_children, p, proc_t, p_child_link) {
         if (p->p_pid == pid) {
@@ -316,7 +319,7 @@ clean_child_proc(proc_t *p) {
     }list_iterate_end();
 
     /* remove itself from the parent child list */
-    list_remove(p->p_child_link);
+    list_remove(&p->p_child_link);
 
     /* destroy the pagedir*/
     pt_destroy_pagedir(p->p_pagedir);
@@ -345,15 +348,15 @@ do_waitpid(pid_t pid, int options, int *status)
 {
     KASSERT(options == 0);
 
-    if(list_empty(&curthr->p_children) || pid < -1) {
+    if(list_empty(&curproc->p_children) || pid < -1) {
         return -ECHILD;
     }
     else if(pid == (pid_t) -1) {
-        proc_t *child = find_dead_child(curthr);
+        proc_t *child = find_dead_child(curproc);
         while(child == NULL) {
             /* wait until one dead child exits */
             sched_cancellable_sleep_on(&curproc->p_wait);
-            child = find_dead_child(curthr);
+            child = find_dead_child(curproc);
         }
         clean_child_proc(child);
         if(status) {
@@ -361,7 +364,7 @@ do_waitpid(pid_t pid, int options, int *status)
         }
         return child->p_pid;
     } else {
-        proc_t *child = find_specific_child(pid, curthr);
+        proc_t *child = find_specific_child(pid, curproc);
         if(child == NULL) return -ECHILD;
         KASSERT(child != NULL);
         while(child->p_state != PROC_DEAD) {
@@ -387,7 +390,7 @@ do_exit(int status)
 {
     /* cancel all the threads in thread list, except curthr */
     kthread_t *t;
-    list_iterate_begin(&p->p_threads, t, kthread_t, kt_plink){
+    list_iterate_begin(&curproc->p_threads, t, kthread_t, kt_plink){
         if(t != curthr) {
             kthread_cancel(t, 0);
         }
