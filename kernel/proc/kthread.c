@@ -74,8 +74,36 @@ free_stack(char *stack)
 kthread_t *
 kthread_create(struct proc *p, kthread_func_t func, long arg1, void *arg2)
 {
-        NOT_YET_IMPLEMENTED("PROCS: kthread_create");
-        return NULL;
+        KASSERT(p != NULL && "the process is NULL!\n");
+        
+        /* alloc slab for thread */
+        kthread_t *thr = slab_obj_alloc(kthread_allocator);
+        if(thr == NULL) {
+                return NULL;
+        }
+
+        /* alloc stack for thread */
+        char* stack = alloc_stack();
+        if(stack == NULL) {
+                slab_obj_free(kthread_allocator, thr);
+                return NULL;
+        }
+
+        /* set attribute */
+        thr->kt_kstack = stack;
+        thr->kt_proc = p;
+        thr->kt_cancelled = 0;
+        thr->kt_wchan = NULL;
+        thr->kt_state = KT_NO_STATE;
+
+        /* init list links */
+        list_link_init(&k->kt_qlink);
+        list_link_init(&k->kt_plink);
+        list_insert_head(&p->p_threads, &k->kt_plink);
+
+        /* setup the context */
+        context_setup(thr->kt_ctx, func, arg1, arg2, k->kt_stack, DEFAULT_STACK_SIZE, p->p_pagedir);
+        return thr;
 }
 
 void
@@ -106,7 +134,18 @@ kthread_destroy(kthread_t *t)
 void
 kthread_cancel(kthread_t *kthr, void *retval)
 {
-        NOT_YET_IMPLEMENTED("PROCS: kthread_cancel");
+        KASSERT(kthr != NULL);
+        if(kthr == curthr) {
+                kthread_exit(retval);
+        } else {
+                kthr->kt_cancelled = 1;
+                kthr->retval = retval;
+
+                /* if the sleep is cancellable, wake up the thread */
+                if(kthr->kt_state ==  KT_SLEEP_CANCELLABLE) {
+                        sched_wakeup_on(kthr->kt_wchan);
+                }
+        }
 }
 
 /*
@@ -127,7 +166,9 @@ kthread_cancel(kthread_t *kthr, void *retval)
 void
 kthread_exit(void *retval)
 {
-        NOT_YET_IMPLEMENTED("PROCS: kthread_exit");
+        curthr->retval = retval;
+        curthr->kt_state = KT_EXITED;
+        proc_thread_exited(retval);
 }
 
 /*

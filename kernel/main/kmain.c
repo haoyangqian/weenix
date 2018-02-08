@@ -242,10 +242,18 @@ initproc_create(void)
 {
     char* name = "init";
     proc_t *init_proc = proc_create(name);
-    if(inti_proc == NULL) {
+    if(init_proc == NULL) {
         panic("init process fail!\n");
     }
-    return NULL;
+
+    KASSERT(init_proc != NULL && init_proc->p_pid == (pid_t) 1 && "wrong pid for init process!!");
+
+    kthread_t *init_thr = kthread_create(init_proc, initproc_run, 0, NULL);
+    if(init_thr == NULL) {
+        panic("init thread fail!\n");
+    }
+
+    return init_thr;
 }
 
 
@@ -263,7 +271,7 @@ initproc_create(void)
 static void *
 initproc_run(int arg1, void *arg2)
 {
-        NOT_YET_IMPLEMENTED("PROCS: initproc_run");
+        printf("initproc_run!\n");
 
         return NULL;
 }

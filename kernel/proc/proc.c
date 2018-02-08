@@ -277,6 +277,54 @@ proc_thread_exited(void *retval)
     sched_switch();
 }
 
+/*
+*   Find one dead child of proc, if there is no dead child, return NULL.
+*/
+static proc_t *
+find_dead_child(proc_t *proc) {
+    proc_t *p;
+    list_iterate_begin(&proc->p_children, p, proc_t, p_child_link) {
+        if (p->p_state == PROC_DEAD) {
+                return p;
+        }
+    } list_iterate_end();
+    return NULL;
+}
+
+/*
+*   Find a specific child with pid, if it doesn't exist, return NULL.
+*/
+static proc_t *
+find_specific_child(pid_t pid, proc_t *proc) {
+    if(list_empty(&proc->p->children)) return NULL;
+    proc_t *p;
+    list_iterate_begin(&proc->p_children, p, proc_t, p_child_link) {
+        if (p->p_pid == pid) {
+            return p;
+        }
+    } list_iterate_end();
+    return NULL;
+}
+
+static void
+clean_child_proc(proc_t *p) {
+    KASSERT(p->p_state == PROC_DEAD && "can only clean a dead proc.");
+    /* destroy all the threads */
+    kthread_t *t;
+    list_iterate_begin(&p->p_threads, t, kthread_t, kt_plink){
+        kthread_destroy(t);
+    }list_iterate_end();
+
+    /* remove itself from the parent child list */
+    list_remove(p->p_child_link);
+
+    /* destroy the pagedir*/
+    pt_destroy_pagedir(p->p_pagedir);
+
+    /* free the slab */
+    slab_obj_free(proc_allocator, p);
+}
+
 /* If pid is -1 dispose of one of the exited children of the current
  * process and return its exit status in the status argument, or if
  * all children of this process are still running, then this function
@@ -295,8 +343,37 @@ proc_thread_exited(void *retval)
 pid_t
 do_waitpid(pid_t pid, int options, int *status)
 {
-        NOT_YET_IMPLEMENTED("PROCS: do_waitpid");
-        return 0;
+    KASSERT(options == 0);
+
+    if(list_empty(&curthr->p_children) || pid < -1) {
+        return -ECHILD;
+    }
+    else if(pid == (pid_t) -1) {
+        proc_t *child = find_dead_child(curthr);
+        while(child == NULL) {
+            /* wait until one dead child exits */
+            sched_cancellable_sleep_on(&curproc->p_wait);
+            child = find_dead_child(curthr);
+        }
+        clean_child_proc(child);
+        if(status) {
+            *status = child->p_status;
+        }
+        return child->p_pid;
+    } else {
+        proc_t *child = find_specific_child(pid, curthr);
+        if(child == NULL) return -ECHILD;
+        KASSERT(child != NULL);
+        while(child->p_state != PROC_DEAD) {
+            sched_cancellable_sleep_on(&curproc->p_wait);
+        }
+        clean_child_proc(child);
+        if(status) {
+            *status = child->p_status;
+        }
+        return child->p_pid;
+    }
+    return 0;
 }
 
 /*
@@ -308,7 +385,15 @@ do_waitpid(pid_t pid, int options, int *status)
 void
 do_exit(int status)
 {
-        NOT_YET_IMPLEMENTED("PROCS: do_exit");
+    /* cancel all the threads in thread list, except curthr */
+    kthread_t *t;
+    list_iterate_begin(&p->p_threads, t, kthread_t, kt_plink){
+        if(t != curthr) {
+            kthread_cancel(t, 0);
+        }
+    }list_iterate_end();
+
+    kthread_exit((void*) status);
 }
 
 size_t
