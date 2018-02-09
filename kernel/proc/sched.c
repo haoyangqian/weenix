@@ -137,6 +137,10 @@ sched_cancel(struct kthread *kthr)
         }
 }
 
+void yield() {
+        sched_make_runnable(curthr);
+        sched_switch();
+}
 /*
  * In this function, you will be modifying the run queue, which can
  * also be modified from an interrupt context. In order for thread

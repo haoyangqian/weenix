@@ -8,6 +8,7 @@ typedef struct ktqueue {
         int             tq_size;
 } ktqueue_t;
 
+void yield();
 /**
  * Switches execution between kernel threads.
  */
