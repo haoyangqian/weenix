@@ -388,7 +388,8 @@ do_waitpid(pid_t pid, int options, int *status)
 void
 do_exit(int status)
 {
-    /* cancel all the threads in thread list, except curthr */
+    /* cancel all the threads in thread list, except curthr, and now we have 
+        only one thread to exit unless we implement "MTP" */
     kthread_t *t;
     list_iterate_begin(&curproc->p_threads, t, kthread_t, kt_plink){
         if(t != curthr) {
