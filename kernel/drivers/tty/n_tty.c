@@ -17,6 +17,8 @@
 #define TTY_BUF_SIZE    128
 #define ldisc_to_ntty(ldisc) \
         CONTAINER_OF(ldisc, n_tty_t, ntty_ldisc)
+#define IS_NEWLINE(c) (((c) == '\r') || (c == '\n'))
+#define IS_BACKSPACE(c) (((c) == 0x08) || ((c) == 0x7F))
 
 static void n_tty_attach(tty_ldisc_t *ldisc, tty_device_t *tty);
 static void n_tty_detach(tty_ldisc_t *ldisc, tty_device_t *tty);
@@ -67,7 +69,21 @@ n_tty_destroy(tty_ldisc_t *ldisc)
 void
 n_tty_attach(tty_ldisc_t *ldisc, tty_device_t *tty)
 {
-        NOT_YET_IMPLEMENTED("DRIVERS: n_tty_attach");
+        KASSERT(ldisc != NULL);
+        KASSERT(tty != NULL);
+        n_tty_t *ntty = ldisc_to_ntty(ldisc);
+        /* init the attributes in ntty */
+        kmutex_init(&ntty->ntty_rlock);
+        sched_queue_init(&ntty->ntty_rwaitq);
+        ntty->ntty_inbuf = (char*) kmalloc(TTY_BUF_SIZE);
+        if(ntty_inbuf == NULL) {
+                panic("Not enough memory for inbuf\n");
+        }
+        ntty->ntty_rhead = 0;
+        ntty->ntty_rawtail = 0;
+        ntty->ntty_ckdtail = 0;
+
+        tty->tty_ldisc = ldisc;
 }
 
 /*
@@ -77,7 +93,12 @@ n_tty_attach(tty_ldisc_t *ldisc, tty_device_t *tty)
 void
 n_tty_detach(tty_ldisc_t *ldisc, tty_device_t *tty)
 {
-        NOT_YET_IMPLEMENTED("DRIVERS: n_tty_detach");
+        KASSERT(ldisc != NULL);
+        KASSERT(tty != NULL);
+        n_tty_t *ntty = ldisc_to_ntty(ldisc);
+        KASSERT(ntty->ntty_inbuf != NULL);
+        kfree(ntty->ntty_inbuf);       
+        tty->tty_ldisc = ldisc;  // ?
 }
 
 /*
@@ -102,8 +123,16 @@ n_tty_detach(tty_ldisc_t *ldisc, tty_device_t *tty)
 int
 n_tty_read(tty_ldisc_t *ldisc, void *buf, int len)
 {
-        NOT_YET_IMPLEMENTED("DRIVERS: n_tty_read");
-        return 0;
+        KASSERT(ldisc != NULL);
+        KASSERT(buf != NULL);
+        const char* buffer = (const char*) buf;
+        n_tty_t *ntty = ldisc_to_ntty(ldisc);
+
+        kmutex_lock(ntty->ntty_rlock);
+
+        int start_pos = ntty->ntty_rhead;
+
+
 }
 
 /*
@@ -139,6 +168,5 @@ const char *
 n_tty_process_char(tty_ldisc_t *ldisc, char c)
 {
         NOT_YET_IMPLEMENTED("DRIVERS: n_tty_process_char");
-
         return NULL;
 }

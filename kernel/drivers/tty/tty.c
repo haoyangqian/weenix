@@ -127,8 +127,18 @@ tty_init()
 tty_device_t *
 tty_create(tty_driver_t *driver, int id)
 {
-        NOT_YET_IMPLEMENTED("DRIVERS: tty_create");
-        return 0;
+    if(driver == NULL) return NULL;
+    tty_device_t *tty = (tty_device_t*) kmalloc(sizeof(tty_device_t));
+    if(tty == NULL) return NULL;
+    /* set up attributes for driver */
+    tty->tty_driver = driver;
+    tty->tty_id = id;
+    tty->tty_ldisc = NULL;
+
+    tty->tty_cdev.cd_id = MKDEVID(2,id);
+    tty->tty_cdev.cd_ops = &tty_bytedev_ops;
+    list_link_init(&tty->tty_cdev.cd_link);
+    return tty;
 }
 
 /*
@@ -147,7 +157,17 @@ tty_create(tty_driver_t *driver, int id)
 void
 tty_global_driver_callback(void *arg, char c)
 {
-        NOT_YET_IMPLEMENTED("DRIVERS: tty_global_driver_callback");
+    tty_device_t *tty = (tty_device_t*) arg;
+    KASSERT(tty != NULL && "tty should not be NULL");
+    tty_ldisc_t *ldisc = tty->tty_ldisc;
+    struct tty_ldisc_ops *ops = ldisc->ld_ops;
+
+    const char *out = ops->receive_char(ldisc, c);
+    if(out != NULL) {
+        tty_echo(tty->tty_driver, out);
+    } else {
+        dbg(DBG_TERM, "unable to print to screen\n");
+    }
 }
 
 /*
@@ -157,7 +177,16 @@ tty_global_driver_callback(void *arg, char c)
 void
 tty_echo(tty_driver_t *driver, const char *out)
 {
-        NOT_YET_IMPLEMENTED("DRIVERS: tty_echo");
+    KASSERT(driver != NULL && "tty should not be NULL");
+    if(out == NULL) return;
+    /* save the address in order to free */
+    void *to_free = (void *) out;
+    while(*out != '0') {
+        driver->ttd_ops->provide_char(driver, *out);
+        out++;
+    }
+    /* free the memory */
+    kfree(to_free);
 }
 
 /*
@@ -168,9 +197,18 @@ tty_echo(tty_driver_t *driver, const char *out)
 int
 tty_read(bytedev_t *dev, int offset, void *buf, int count)
 {
-        NOT_YET_IMPLEMENTED("DRIVERS: tty_read");
+    KASSERT(dev != NULL);
+    KASSERT(buf != NULL);
+    tty_ldisc_t *ldisc = bd_to_tty(dev)->tty_ldisc;
+    tty_driver_t *driver = bd_to_tty(dev)->tty_driver;
 
-        return 0;
+    KASSERT(ldisc != NULL);
+    KASSERT(driver != NULL);
+
+    void *data = driver->ttd_ops->block_io(driver);
+    int read_bytes = ldisc->ld_ops->read(ldisc, buf, count);
+    driver->ttd_ops->unblock_io(driver,data);
+    return read_bytes;
 }
 
 /*
@@ -187,7 +225,26 @@ tty_read(bytedev_t *dev, int offset, void *buf, int count)
 int
 tty_write(bytedev_t *dev, int offset, const void *buf, int count)
 {
-        NOT_YET_IMPLEMENTED("DRIVERS: tty_write");
+    KASSERT(dev != NULL);
+    KASSERT(buf != NULL);
+    tty_ldisc_t *ldisc = bd_to_tty(dev)->tty_ldisc;
+    tty_driver_t *driver = bd_to_tty(dev)->tty_driver;
 
-        return 0;
+    KASSERT(ldisc != NULL);
+    KASSERT(driver != NULL);
+
+    const char *buffer = (const char*) buf;
+    void *data = driver->ttd_ops->block_io(driver);
+    int i;
+    for(i = 0;i < count;++i) {
+        const char *to_echo = ldisc->ld_ops->process_char(ldisc, buffer[i]);
+        if(to_echo != NULL) {
+            tty_echo(driver, to_echo);
+        } else {
+            dbg(DBG_TERM, "unable to print to screen\n");
+            break;
+        }
+    }
+    driver->ttd_ops->unblock_io(driver,data);
+    return i;
 }
