@@ -47,7 +47,11 @@ bytedev_ops_t zero_dev_ops = {
 void
 memdevs_init()
 {
-        NOT_YET_IMPLEMENTED("DRIVERS: memdevs_init");
+        bytedev_t *bd = (bytedev_t*) kmalloc(sizeof(bytedev_t));
+        KASSERT(bd != NULL && "can not malloc bytedev_t");
+
+        bd->cd_id = MEM_NULL_DEVID;
+        bd->cd_ops = &
 }
 
 /**

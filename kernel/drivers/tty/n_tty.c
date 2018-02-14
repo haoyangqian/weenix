@@ -19,7 +19,7 @@
         CONTAINER_OF(ldisc, n_tty_t, ntty_ldisc)
 #define IS_NEWLINE(c) (((c) == '\r') || (c == '\n'))
 #define IS_BACKSPACE(c) (((c) == 0x08) || ((c) == 0x7F))
-#define IS_ECS (((c) == 0x04))
+#define IS_ECS(c) (((c) == 0x04))
 
 static void n_tty_attach(tty_ldisc_t *ldisc, tty_device_t *tty);
 static void n_tty_detach(tty_ldisc_t *ldisc, tty_device_t *tty);
@@ -77,7 +77,7 @@ n_tty_attach(tty_ldisc_t *ldisc, tty_device_t *tty)
         kmutex_init(&ntty->ntty_rlock);
         sched_queue_init(&ntty->ntty_rwaitq);
         ntty->ntty_inbuf = (char*) kmalloc(TTY_BUF_SIZE);
-        if(ntty_inbuf == NULL) {
+        if(ntty->ntty_inbuf == NULL) {
                 panic("Not enough memory for inbuf\n");
         }
         ntty->ntty_rhead = 0;
@@ -142,7 +142,7 @@ n_tty_read(tty_ldisc_t *ldisc, void *buf, int len)
         char* buffer = (char*) buf;
         n_tty_t *ntty = ldisc_to_ntty(ldisc);
 
-        kmutex_lock(ntty->ntty_rlock);
+        kmutex_lock(&ntty->ntty_rlock);
 
         int buf_pos = 0;
         int bytes_read = 0;
@@ -153,7 +153,7 @@ n_tty_read(tty_ldisc_t *ldisc, void *buf, int len)
 
                         /* getting here means we are cancelled */
                         if(buf_empty(ntty)) {
-                                kmutex_unlock(ntty->ntty_rlock);
+                                kmutex_unlock(&ntty->ntty_rlock);
                                 return -EINTR;
                         }
                 }
@@ -162,12 +162,12 @@ n_tty_read(tty_ldisc_t *ldisc, void *buf, int len)
                 ntty->ntty_rhead = (ntty->ntty_rhead + 1) % TTY_BUF_SIZE;
                 cur_char = ntty->ntty_inbuf[ntty->ntty_rhead];
 
-                If(!IS_ECS(cur_char)) {
+                if(!IS_ECS(cur_char)) {
                         buffer[buf_pos++] = cur_char;
                 }
                 bytes_read++;
         }
-        kmutex_unlock(ntty->ntty_rlock);
+        kmutex_unlock(&ntty->ntty_rlock);
         return bytes_read;
 }
 
