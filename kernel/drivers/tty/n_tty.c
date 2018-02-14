@@ -19,6 +19,7 @@
         CONTAINER_OF(ldisc, n_tty_t, ntty_ldisc)
 #define IS_NEWLINE(c) (((c) == '\r') || (c == '\n'))
 #define IS_BACKSPACE(c) (((c) == 0x08) || ((c) == 0x7F))
+#define IS_ECS (((c) == 0x04))
 
 static void n_tty_attach(tty_ldisc_t *ldisc, tty_device_t *tty);
 static void n_tty_detach(tty_ldisc_t *ldisc, tty_device_t *tty);
@@ -101,6 +102,19 @@ n_tty_detach(tty_ldisc_t *ldisc, tty_device_t *tty)
         tty->tty_ldisc = ldisc;  // ?
 }
 
+
+static int buf_empty(n_tty_t *ntty) {
+        return (ntty->ntty_rhead == ntty->ntty_ckdtail);
+}
+
+static int buf_full(n_tty_t *ntty) {
+        return ((ntty->ntty_rawtail + 1) % TTY_BUF_SIZE == ntty->ntty_rhead);
+}
+
+static int buf_has_raw(n_tty_t *ntty) {
+        return ntty->ntty_rawtail != ntty->ntty_ckdtail;
+}
+
 /*
  * Read a maximum of len bytes from the line discipline into buf. If
  * the buffer is empty, sleep until some characters appear. This might
@@ -125,14 +139,36 @@ n_tty_read(tty_ldisc_t *ldisc, void *buf, int len)
 {
         KASSERT(ldisc != NULL);
         KASSERT(buf != NULL);
-        const char* buffer = (const char*) buf;
+        char* buffer = (char*) buf;
         n_tty_t *ntty = ldisc_to_ntty(ldisc);
 
         kmutex_lock(ntty->ntty_rlock);
 
-        int start_pos = ntty->ntty_rhead;
+        int buf_pos = 0;
+        int bytes_read = 0;
+        char cur_char = '\0';
+        while(bytes_read < len && !IS_NEWLINE(cur_char)) {
+                if(buf_empty(ntty)) {
+                        sched_cancellable_sleep_on(&ntty->ntty_rwaitq);
 
+                        /* getting here means we are cancelled */
+                        if(buf_empty(ntty)) {
+                                kmutex_unlock(ntty->ntty_rlock);
+                                return -EINTR;
+                        }
+                }
 
+                KASSERT(!buf_empty(ntty));
+                ntty->ntty_rhead = (ntty->ntty_rhead + 1) % TTY_BUF_SIZE;
+                cur_char = ntty->ntty_inbuf[ntty->ntty_rhead];
+
+                If(!IS_ECS(cur_char)) {
+                        buffer[buf_pos++] = cur_char;
+                }
+                bytes_read++;
+        }
+        kmutex_unlock(ntty->ntty_rlock);
+        return bytes_read;
 }
 
 /*
@@ -154,8 +190,25 @@ n_tty_read(tty_ldisc_t *ldisc, void *buf, int len)
 const char *
 n_tty_receive_char(tty_ldisc_t *ldisc, char c)
 {
-        NOT_YET_IMPLEMENTED("DRIVERS: n_tty_receive_char");
-        return NULL;
+        n_tty_t *ntty = ldisc_to_ntty(ldisc);
+
+        const char* ret = n_tty_process_char(ldisc, c);
+        /* if it is a backspace */
+        if(IS_BACKSPACE(c)) {
+                ntty->ntty_rawtail = (ntty->ntty_rawtail - 1) % TTY_BUF_SIZE;
+        } else if(buf_full(ntty)) {
+                /* do nothing */
+        } else if(IS_NEWLINE(c)){
+                /* if it is a new line, move cooked tail pointer as well */
+                ntty->ntty_rawtail = (ntty->ntty_rawtail + 1) % TTY_BUF_SIZE;
+                ntty->ntty_ckdtail = ntty->ntty_rawtail;
+                ntty->ntty_inbuf[ntty->ntty_rawtail] = c;
+                sched_wakeup_on(&ntty->ntty_rwaitq);
+        } else {
+                ntty->ntty_rawtail = (ntty->ntty_rawtail + 1) % TTY_BUF_SIZE;
+                ntty->ntty_inbuf[ntty->ntty_rawtail] = c;
+        }
+        return ret;
 }
 
 /*
@@ -167,6 +220,23 @@ n_tty_receive_char(tty_ldisc_t *ldisc, char c)
 const char *
 n_tty_process_char(tty_ldisc_t *ldisc, char c)
 {
-        NOT_YET_IMPLEMENTED("DRIVERS: n_tty_process_char");
-        return NULL;
+        n_tty_t *ntty = ldisc_to_ntty(ldisc);
+        char *ret;
+        if(buf_full(ntty)) {
+                ret = kmalloc(sizeof(char));
+                if(ret == NULL) return NULL;
+                ret[0] = '\0';
+        } else if(IS_NEWLINE(c)) {
+                ret = kmalloc(3*sizeof(char));
+                if(ret == NULL) return NULL;
+                ret[0] = '\r';
+                ret[1] = '\n';
+                ret[2] = '\0';
+        } else{
+                ret = kmalloc(2*sizeof(char));
+                if(ret == NULL) return NULL;
+                ret[0] = c;
+                ret[1] = '\0';
+        } 
+        return ret;
 }
