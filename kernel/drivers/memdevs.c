@@ -47,7 +47,7 @@ bytedev_ops_t zero_dev_ops = {
 void
 memdevs_init()
 {
-        /* init null dev */
+        /* init and register null dev */
         bytedev_t *null_dev = (bytedev_t*) kmalloc(sizeof(bytedev_t));
         KASSERT(null_dev != NULL && "can not malloc null dev");
 
@@ -57,12 +57,12 @@ memdevs_init()
 
         bytedev_register(null_dev);
 
-        /* init zero dev */
+        /* init and register zero dev */
         bytedev_t *zero_dev = (bytedev_t*) kmalloc(sizeof(bytedev_t));
         KASSERT(zero_dev != NULL && "can not malloc zero dev");
 
         zero_dev->cd_id = MEM_ZERO_DEVID;
-        zero_dev->cd_ops = &null_dev_ops;
+        zero_dev->cd_ops = &zero_dev_ops;
         list_link_init(&zero_dev->cd_link);
 
         bytedev_register(zero_dev);
@@ -82,8 +82,7 @@ memdevs_init()
 static int
 null_read(bytedev_t *dev, int offset, void *buf, int count)
 {
-        NOT_YET_IMPLEMENTED("DRIVERS: null_read");
-        return -ENOMEM;
+        return 0;
 }
 
 /**
@@ -100,8 +99,7 @@ null_read(bytedev_t *dev, int offset, void *buf, int count)
 static int
 null_write(bytedev_t *dev, int offset, const void *buf, int count)
 {
-        NOT_YET_IMPLEMENTED("DRIVERS: null_write");
-        return -ENOMEM;
+        return count;
 }
 
 /**
@@ -118,8 +116,12 @@ null_write(bytedev_t *dev, int offset, const void *buf, int count)
 static int
 zero_read(bytedev_t *dev, int offset, void *buf, int count)
 {
-        NOT_YET_IMPLEMENTED("DRIVERS: zero_read");
-        return 0;
+        char* buffer = (char*) buf;
+        int i;
+        for(i = 0;i < count;++i) {
+                buffer[i] = '\0';
+        }
+        return count;
 }
 
 /* Don't worry about these until VM. Once you're there, they shouldn't be hard. */

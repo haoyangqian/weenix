@@ -45,6 +45,8 @@
 
 #include "test/kshell/kshell.h"
 #include "test/s5fs_test.h"
+#include "test/proc_test.h"
+#include "test/driver_test.h"
 
 GDB_DEFINE_HOOK(boot)
 GDB_DEFINE_HOOK(initialized)
@@ -271,7 +273,8 @@ initproc_create(void)
 static void *
 initproc_run(int arg1, void *arg2)
 {
-    run_proc_test();
+    //run_proc_test();
+    run_driver_test();
     return NULL;
 }
 

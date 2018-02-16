@@ -393,8 +393,14 @@ ata_intr_wrapper(regs_t *regs)
 static int
 ata_read(blockdev_t *bdev, char *data, blocknum_t blocknum, unsigned int count)
 {
-        NOT_YET_IMPLEMENTED("DRIVERS: ata_read");
-        return -1;
+    ata_disk_t *ad = bd_to_ata(bdev);
+    unsigned int i;
+    for(i = 0;i < count;++i) {
+        int ret = ata_do_operation(ad, data, (blocknum + i), 0);
+        if(ret != 0) return ret;
+    }
+    data += BLOCK_SIZE; // move one block size forward
+    return 0;
 }
 
 /**
@@ -410,8 +416,15 @@ ata_read(blockdev_t *bdev, char *data, blocknum_t blocknum, unsigned int count)
 static int
 ata_write(blockdev_t *bdev, const char *data, blocknum_t blocknum, unsigned int count)
 {
-        NOT_YET_IMPLEMENTED("DRIVERS: ata_write");
-        return -1;
+    ata_disk_t *ad = bd_to_ata(bdev);
+    char* to_write = (char*) data;
+    unsigned int i;
+    for(i = 0;i < count;++i) {
+        int ret = ata_do_operation(ad, to_write, (blocknum + i), 1);
+        if(ret != 0) return ret;
+        to_write += BLOCK_SIZE;
+    }
+    return 0;
 }
 
 /**
@@ -505,8 +518,64 @@ ata_write(blockdev_t *bdev, const char *data, blocknum_t blocknum, unsigned int 
 static int
 ata_do_operation(ata_disk_t *adisk, char *data, blocknum_t blocknum, int write)
 {
-        NOT_YET_IMPLEMENTED("DRIVERS: ata_do_operation");
-        return -1;
+    uint8_t channel = adisk->ata_channel;
+    /* Lock the mutex and set the IPL. */
+    uint8_t old_ipl = intr_getipl();
+    intr_setipl(INTR_DISK_SECONDARY);
+    kmutex_lock(&adisk->ata_mutex);
+
+    /* Initialize DMA for this operation. */
+    dma_load(channel, (void *) data, BLOCK_SIZE);
+
+    /* Write to the disk's registers to tell it the number
+    *  of sectors that will be read/writen and the starting sector.*/
+    ata_outb_reg(channel, ATA_REG_SECCOUNT0, adisk->ata_sectors_per_block);
+    int sectornum = blocknum * adisk->ata_sectors_per_block;
+    // Write the number of sectors to ATA_REG_SECCOUNT0.
+    ata_outb_reg(channel, ATA_REG_LBA0,  sectornum & 0xff);
+    ata_outb_reg(channel, ATA_REG_LBA1, (sectornum & 0xff00) >> 8);
+    ata_outb_reg(channel, ATA_REG_LBA2, (sectornum & 0xff0000) >> 16);
+
+    /* Write to the disk's registers to tell it the type of
+    *  operation it will be performing. */
+    if (write){
+        ata_outb_reg(channel, ATA_REG_COMMAND, ATA_CMD_WRITE_DMA);
+    } else {
+        ata_outb_reg(channel, ATA_REG_COMMAND, ATA_CMD_READ_DMA);
+    }
+
+    /* Pause to make sure the disk is ready to go. */
+    ata_pause(channel);
+
+    /* Start the DMA operation. */
+    dma_start(channel, ATA_CHANNELS[channel].atac_busmaster, write);
+
+    /* wait for the disk to seek and perform the requested operation. */
+    sched_sleep_on(&adisk->ata_waitq);
+
+    /* read the status of the DMA operation from the disk's ATA_REG_STATUS 
+    register. */
+    uint8_t status = ata_inb_reg(channel, ATA_REG_STATUS);
+    uint8_t ret = 0;
+
+    /* check the status to see if the error bit is set. */
+    if(status & ATA_SR_ERR) {
+        ret = ata_inb_reg(channel, ATA_REG_ERROR);
+    }
+
+    /* Alert the DMA controller that we have received the interrupt and, 
+    *  if necessary, clear the error bit. */
+    dma_reset(ATA_CHANNELS[channel].atac_busmaster);
+    if(status & ATA_SR_ERR) {
+        ata_outb_reg(channel, ATA_REG_STATUS, status | ATA_SR_ERR);
+    }
+
+    /* Now we are finished. Restore the IPL, release any locks we have, 
+    *  and return the status of the DMA operation. */
+    intr_setipl(old_ipl);
+    kmutex_unlock(&adisk->ata_mutex);
+
+    return ret;
 }
 
 /**
@@ -520,7 +589,7 @@ ata_do_operation(ata_disk_t *adisk, char *data, blocknum_t blocknum, int write)
 static void
 ata_intr(regs_t *regs, void *arg)
 {
-        NOT_YET_IMPLEMENTED("DRIVERS: ata_intr");
+    sched_wakeup_on(&(((ata_disk_t *) arg)->ata_waitq));
 }
 
 /*
