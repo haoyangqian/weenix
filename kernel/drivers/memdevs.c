@@ -47,11 +47,26 @@ bytedev_ops_t zero_dev_ops = {
 void
 memdevs_init()
 {
-        bytedev_t *bd = (bytedev_t*) kmalloc(sizeof(bytedev_t));
-        KASSERT(bd != NULL && "can not malloc bytedev_t");
+        /* init null dev */
+        bytedev_t *null_dev = (bytedev_t*) kmalloc(sizeof(bytedev_t));
+        KASSERT(null_dev != NULL && "can not malloc null dev");
 
-        bd->cd_id = MEM_NULL_DEVID;
-        bd->cd_ops = &
+        null_dev->cd_id = MEM_NULL_DEVID;
+        null_dev->cd_ops = &null_dev_ops;
+        list_link_init(&null_dev->cd_link);
+
+        bytedev_register(null_dev);
+
+        /* init zero dev */
+        bytedev_t *zero_dev = (bytedev_t*) kmalloc(sizeof(bytedev_t));
+        KASSERT(zero_dev != NULL && "can not malloc zero dev");
+
+        zero_dev->cd_id = MEM_ZERO_DEVID;
+        zero_dev->cd_ops = &null_dev_ops;
+        list_link_init(&zero_dev->cd_link);
+
+        bytedev_register(zero_dev);
+
 }
 
 /**
