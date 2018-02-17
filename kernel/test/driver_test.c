@@ -59,7 +59,7 @@ void ld_test(bytedev_t* bd) {
     dbg(DBG_TESTPASS, "PASS testing ld read/write\n");
 }
 
-static void* read_from_bd(int c,void *arg2) {
+static void* read_from_bd1(int c,void *arg2) {
     bytedev_t *bd = (bytedev_t*) arg2;
     char readbuf[30];
     int i;
@@ -74,9 +74,9 @@ static void* read_from_bd(int c,void *arg2) {
     }
 
     return NULL;
-} 
+}
 
-static void* write_to_bd(int arg1, void *arg2) {
+static void* write_to_bd1(int arg1, void *arg2) {
     bytedev_t *bd = (bytedev_t*) arg2;
     int i;
     for(i = 0;i < TIMES;++i) {
@@ -91,19 +91,50 @@ static void* write_to_bd(int arg1, void *arg2) {
     return NULL;
 }
 
+static void* read_from_bd2(int c,void *arg2) {
+    bytedev_t *bd = (bytedev_t*) arg2;
+    char readbuf[30];
+    int i;
+    for(i = 0;i < TIMES*2;++i) {
+        bd->cd_ops->read(bd, 0, readbuf, 30);
+
+        int j;
+        for(j = 0;j < 20;++j) {
+            KASSERT(readbuf[j] == c);
+        }
+        KASSERT(readbuf[j] == '\n');
+    }
+
+    return NULL;
+} 
+
+static void* write_to_bd2(int arg1, void *arg2) {
+    bytedev_t *bd = (bytedev_t*) arg2;
+    int i;
+    for(i = 0;i < TIMES;++i) {
+        write_mutilple_chars(bd,20,'a');
+        write_mutilple_chars(bd,1,'\n');
+        yield();
+        write_mutilple_chars(bd,20,'a');
+        write_mutilple_chars(bd,1,'\n');
+        yield();
+    }
+    return NULL;
+}
 
 
+/* Ensure that we can have two threads simultaneously reading from the same terminal. */
 static void test_multiple_threads_read(bytedev_t *bd) {
     dbg(DBG_TEST, "testing multithreaded tty reads and writes\n");
 
     /* set up two read threads and one read threads */
     proc_t *proc1 = proc_create("multithread_reading_proc_1");
-    kthread_t *t1 = kthread_create(proc1, read_from_bd, 'a', (void*) bd);
+    kthread_t *t1 = kthread_create(proc1, read_from_bd1, 'a', (void*) bd);
     proc_t *proc2 = proc_create("multithread_reading_proc_2");
-    kthread_t *t2 = kthread_create(proc2, read_from_bd, 'b', (void*) bd);
+    kthread_t *t2 = kthread_create(proc2, read_from_bd1, 'b', (void*) bd);
 
     proc_t *proc3 = proc_create("multithread_writing_proc_1");
-    kthread_t *t3 = kthread_create(proc3, write_to_bd, 0, (void*) bd);
+    kthread_t *t3 = kthread_create(proc3, write_to_bd1, 0, (void*) bd);
     sched_make_runnable(t1);
     sched_make_runnable(t2);
     sched_make_runnable(t3);
@@ -116,24 +147,45 @@ static void test_multiple_threads_read(bytedev_t *bd) {
     dbg(DBG_TESTPASS, "PASS test_multiple_threads_read\n");
 }
 
+/* Ensure that we can have two threads simultaneously writing to the same terminal. */
 static void test_multiple_threads_write(bytedev_t *bd) {
     dbg(DBG_TEST, "testing multithreaded tty reads and writes\n");
 
     /* set up two write threads and one read threads */
     proc_t *proc1 = proc_create("multithread_writing_proc_1");
-    kthread_t *t1 = kthread_create(proc1, write_to_bd, 0, (void*) bd);
+    kthread_t *t1 = kthread_create(proc1, write_to_bd2, 0, (void*) bd);
     proc_t *proc2 = proc_create("multithread_writing_proc_2");
-    kthread_t *t2 = kthread_create(proc2, write_to_bd, 0, (void*) bd);
+    kthread_t *t2 = kthread_create(proc2, write_to_bd2, 0, (void*) bd);
     
     proc_t *proc3 = proc_create("multithread_reading_proc_3");
-    kthread_t *t3 = kthread_create(proc3, read_from_bd, 'b', (void*) bd);
+    kthread_t *t3 = kthread_create(proc3, read_from_bd2, 'a', (void*) bd);
 
     sched_make_runnable(t1);
     sched_make_runnable(t2);
     sched_make_runnable(t3);
 
+    int status;
+    do_waitpid(proc1->p_pid, 0, &status);
+    do_waitpid(proc2->p_pid, 0, &status);
+    do_waitpid(proc3->p_pid, 0, &status);
+
+    dbg(DBG_TESTPASS, "PASS test_multiple_threads_write\n");
 }
 
+/* Make sure that, if the internal terminal buffer is full, 
+*  Weenix cleanly discards any excess data that comes in.*/
+void full_buffer_test(bytedev_t *bd) {
+    dbg(DBG_TEST, "testing full buffer\n");
+    char readbuf[200];
+    /* try to write more than buffer size. */
+    write_mutilple_chars(bd, TTY_BUF_SIZE+10,'a');
+
+    int read_chars = bd->cd_ops->read(bd, 0, readbuf, TTY_BUF_SIZE+10);
+    KASSERT(read_chars == TTY_BUF_SIZE);
+    dbg(DBG_TESTPASS, "PASS testing full buffer\n");
+}
+
+/* test tty */
 void run_tty_test() {
     dbg(DBG_TEST, "testing tty\n");
     bytedev_t *bd = bytedev_lookup(MKDEVID(TTY_MAJOR, 0));
@@ -141,6 +193,8 @@ void run_tty_test() {
 
     ld_test(bd);
     test_multiple_threads_read(bd);
+    test_multiple_threads_write(bd);
+    full_buffer_test(bd);
     dbg(DBG_TESTPASS, "PASS testing tty\n");
 }
 
