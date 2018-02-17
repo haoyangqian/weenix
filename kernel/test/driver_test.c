@@ -51,7 +51,7 @@ void ld_test(bytedev_t* bd) {
     }
     KASSERT(readbuf[i] == '\n');
     int j;
-    for(j = 0;j < 10;++j) {
+    for(j = 6;j < 16;++j) {
         KASSERT(readbuf[j] == 'b');
     }
     KASSERT(readbuf[j] == '\r');
@@ -61,10 +61,10 @@ void ld_test(bytedev_t* bd) {
 
 static void* read_from_bd(int c,void *arg2) {
     bytedev_t *bd = (bytedev_t*) arg2;
-    char readbuf[20];
+    char readbuf[30];
     int i;
     for(i = 0;i < TIMES;++i) {
-        bd->cd_ops->read(bd, 0, readbuf, 20);
+        bd->cd_ops->read(bd, 0, readbuf, 30);
 
         int j;
         for(j = 0;j < 20;++j) {
@@ -76,7 +76,7 @@ static void* read_from_bd(int c,void *arg2) {
     return NULL;
 } 
 
-static void* write_to_bd(long arg1, void *arg2) {
+static void* write_to_bd(int arg1, void *arg2) {
     bytedev_t *bd = (bytedev_t*) arg2;
     int i;
     for(i = 0;i < TIMES;++i) {
