@@ -34,7 +34,7 @@
 # changed at runtime by modifying the dbg_modes global variable.
 #
 # All debug statements
-        DBG=all
+        DBG=-all,test,testpass,testfail
 # Change to this for no debug statements
 #       DBG=-all
 
