@@ -9,6 +9,8 @@
 
 typedef struct n_tty n_tty_t;
 
+#define TTY_BUF_SIZE 128
+
 /**
  * Allocate and initialize an n_tty line discipline, which is not yet
  * attached to a tty.

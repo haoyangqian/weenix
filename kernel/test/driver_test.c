@@ -98,7 +98,7 @@ static void* read_from_bd2(int c,void *arg2) {
     bytedev_t *bd = (bytedev_t*) arg2;
     char readbuf[30];
     int i;
-    for(i = 0;i < TIMES*2;++i) {
+    for(i = 0;i < TIMES*4;++i) {
         bd->cd_ops->read(bd, 0, readbuf, 30);
 
         int j;
