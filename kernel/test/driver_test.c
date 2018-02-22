@@ -181,10 +181,12 @@ void full_buffer_test(bytedev_t *bd) {
     dbg(DBG_TEST, "testing full buffer\n");
     char readbuf[200];
     /* try to write more than buffer size. */
-    write_mutilple_chars(bd, TTY_BUF_SIZE+10,'a');
+    write_mutilple_chars(bd, TTY_BUF_SIZE-2,'a');
+    write_mutilple_chars(bd, 1,'\n');
+    write_mutilple_chars(bd, 20,'b');
 
     int read_chars = bd->cd_ops->read(bd, 0, readbuf, TTY_BUF_SIZE+10);
-    KASSERT(read_chars == TTY_BUF_SIZE);
+    KASSERT(read_chars == TTY_BUF_SIZE-1);
     dbg(DBG_TESTPASS, "PASS testing full buffer\n");
 }
 
@@ -257,7 +259,7 @@ typedef struct rw_args{
 static void *write_func(int arg1, void *arg2) {
     rw_args_t *args = (rw_args_t*) arg2;
 
-    dbg(DBG_TEST, "writing data to block %d\n", args->blocknum);
+    dbg(DBG_TEST, "writing data to block %d, num_blocks %d\n", args->blocknum, args->num_blocks);
 
     char *write_buffer = args->data;
     blockdev_t *bd = args->bd;
@@ -271,7 +273,7 @@ static void *write_func(int arg1, void *arg2) {
 static void *read_func(int arg1, void *arg2) {
     rw_args_t *args = (rw_args_t*) arg2;
 
-    dbg(DBG_TEST, "reading data to block %d\n", args->blocknum);
+    dbg(DBG_TEST, "reading data to block %d, num_blocks %d\n", args->blocknum, args->num_blocks);
 
     char *read_buffer = args->data;
     blockdev_t *bd = args->bd;
@@ -329,7 +331,7 @@ void test_multithread_readwrite(){
     KASSERT(bd != NULL);
 
     int block_to_read = 2;
-    int block_to_write = 2;
+    int block_to_write = block_to_read;
     char *readbuffer1 = (char*) page_alloc_n(block_to_read);
     char *readbuffer2 = (char*) page_alloc_n(block_to_read);
     char *writebuffer1 = (char*) page_alloc_n(block_to_write);
@@ -338,23 +340,22 @@ void test_multithread_readwrite(){
             && writebuffer1 != NULL && writebuffer2 != NULL);
 
     unsigned int i;
-    for(i = 0;i < BLOCK_SIZE*block_to_write;++i) {
+    for(i = 0;i < BLOCK_SIZE * block_to_write;++i) {
         writebuffer1[i] = 'a';
         writebuffer2[i] = 'b';
     }
 
     int block_offset = 30;
-    rw_args_t write_args1 = {bd, writebuffer1, block_offset, block_to_write};
-    rw_args_t write_args2 = {bd, writebuffer2, block_offset + block_to_write, block_to_write};
-    rw_args_t read_args1 = {bd, readbuffer1, block_offset, block_to_read};
-    rw_args_t read_args2 = {bd, readbuffer2, block_offset + block_to_read, block_to_read};
 
     /* create write procs and threads */
-    proc_t *write_proc1 = proc_create("ata_write_proc");
+    rw_args_t write_args1 = {bd, writebuffer1, block_offset, block_to_write};
+    rw_args_t write_args2 = {bd, writebuffer2, block_offset + 10, block_to_write};
+
+    proc_t *write_proc1 = proc_create("ata_write_proc1");
     kthread_t *write_thread1 = kthread_create(write_proc1, write_func, 0, (void *) &write_args1);
-    sched_make_runnable(write_thread1);
-    proc_t *write_proc2 = proc_create("ata_write_proc");
+    proc_t *write_proc2 = proc_create("ata_write_proc2");
     kthread_t *write_thread2 = kthread_create(write_proc2, write_func, 0, (void *) &write_args2);
+    sched_make_runnable(write_thread1);
     sched_make_runnable(write_thread2);
 
     /* wait these procs to exit */
@@ -363,19 +364,22 @@ void test_multithread_readwrite(){
     do_waitpid(write_proc2->p_pid, 0, &status);
 
     /* create read procs and threads */
-    proc_t *read_proc1 = proc_create("ata_read_proc");
+    rw_args_t read_args1 = {bd, readbuffer1, block_offset, block_to_read};
+    rw_args_t read_args2 = {bd, readbuffer2, block_offset + 10, block_to_read};
+
+    proc_t *read_proc1 = proc_create("ata_read_proc1");
     kthread_t *read_thread1 = kthread_create(read_proc1, read_func, 0, (void *) &read_args1);
-    sched_make_runnable(read_thread1);
-    proc_t *read_proc2 = proc_create("ata_read_proc");
+    proc_t *read_proc2 = proc_create("ata_read_proc2");
     kthread_t *read_thread2 = kthread_create(read_proc2, read_func, 0, (void *) &read_args2);
-    sched_make_runnable(read_thread);
+    sched_make_runnable(read_thread1);
+    sched_make_runnable(read_thread2);
 
     /* wait these procs to exit */
     do_waitpid(read_proc1->p_pid, 0, &status);
     do_waitpid(read_proc2->p_pid, 0, &status);
 
     unsigned int j;
-    for (j = 0; j < BLOCK_SIZE * block_to_read; j++){
+    for (j = 0; j < BLOCK_SIZE * block_to_read; ++j){
         KASSERT(readbuffer1[j] == 'a');
         KASSERT(readbuffer2[j] == 'b');
     }
@@ -389,8 +393,11 @@ void test_multithread_readwrite(){
 }
 
 
-static void *stress_test(){
+static void stress_test(){
     dbg(DBG_TEST, "stress testing reading and writing to disk\n");
+
+    blockdev_t *bd = blockdev_lookup(MKDEVID(1,0));
+    KASSERT(bd != NULL);
 
     /* test read many blocks in a short time */
     char *readbuffer = (char*) page_alloc();
@@ -398,25 +405,29 @@ static void *stress_test(){
     KASSERT(readbuffer != NULL && writebuffer != NULL);
 
     unsigned int i;
+    int stress_blocks = 512;
     for(i = 0;i < BLOCK_SIZE;++i) {
         writebuffer[i] = 'a';
     }
 
-    dbg(DBG_TEST, "test read many blocks");
+    dbg(DBG_TEST, "test read many blocks\n");
     int j;
-    for (j = 0; j < 1024; j++){
+    for (j = 0; j < stress_blocks; j++){
+        dbg(DBG_TEST, "test read block %d\n", j);
         int read_result = bd->bd_ops->read_block(bd, readbuffer, j, 1);
         KASSERT(read_result == 0);
     }
 
-    dbg(DBG_TEST, "test write many blocks");
-    for (j = 0; j < 1024; j++){
+    dbg(DBG_TEST, "test write many blocks\n");
+    for (j = 0; j < stress_blocks; j++){
+        dbg(DBG_TEST, "test write block %d\n", j);
         int write_result = bd->bd_ops->write_block(bd, writebuffer, j, 1);
-        KASSERT(read_result == 0);
+        KASSERT(write_result == 0);
     }
 
-    dbg(DBG_TEST, "test read many blocks from the written blocks");
-    for (j = 0; j < 1024; j++){
+    dbg(DBG_TEST, "test read many blocks from the written blocks\n");
+    for (j = 0; j < stress_blocks; j++){
+        dbg(DBG_TEST, "test read block %d\n", j);
         int read_result = bd->bd_ops->read_block(bd, readbuffer, j, 1);
         KASSERT(read_result == 0);
 
@@ -429,32 +440,31 @@ static void *stress_test(){
     page_free((void*) readbuffer);
 
     /* test large block reads and write */
-    int k;
-    for(k = 1;k <= 128;++k) {
-        char *readbuffer = (char*) page_alloc_n(k);
-        char *writebuffer = (char*) page_alloc_n(k);
-        KASSERT(readbuffer != NULL && writebuffer != NULL);
+    int k = 128;
 
-        unsigned int m;
-        for(m = 0;m < BLOCK_SIZE*k;++m) {
-            writebuffer[m] = 'a';
-        }
+    readbuffer = (char*) page_alloc_n(k);
+    writebuffer = (char*) page_alloc_n(k);
+    KASSERT(readbuffer != NULL && writebuffer != NULL);
 
-        dbg(DBG_TEST, "test write large blocks with %d blocks\n", k);
-        int write_result = bd->bd_ops->write_block(bd, writebuffer, 0, k);
-        KASSERT(write_result == 0);
-
-        dbg(DBG_TEST, "test read large blocks with %d blocks\n", k);
-        int read_result = bd->bd_ops->read_block(bd, readbuffer, 0, k);
-        KASSERT(read_result == 0);
-        
-        for(m = 0;m < BLOCK_SIZE*k;++m) {
-            KASSERT(readbuffer[m] == 'a');
-        }
-
-        page_free_n((void*) readbuffer, k);
-        page_free_n((void*) writebuffer, k);
+    unsigned int m;
+    for(m = 0;m < BLOCK_SIZE*k;++m) {
+        writebuffer[m] = 'a';
     }
+
+    dbg(DBG_TEST, "test write large blocks with %d blocks\n", k);
+    int write_result = bd->bd_ops->write_block(bd, writebuffer, 0, k);
+    KASSERT(write_result == 0);
+
+    dbg(DBG_TEST, "test read large blocks with %d blocks\n", k);
+    int read_result = bd->bd_ops->read_block(bd, readbuffer, 0, k);
+    KASSERT(read_result == 0);
+
+    for(m = 0;m < BLOCK_SIZE*k;++m) {
+        KASSERT(readbuffer[m] == 'a');
+    }
+
+    page_free_n((void*) readbuffer, k);
+    page_free_n((void*) writebuffer, k);
 
     dbg(DBG_TESTPASS, "pass stress testing reading and writing to disk\n");
 }
@@ -474,6 +484,6 @@ void run_driver_test() {
     dbg(DBG_TEST, "testing drivers\n");
     run_tty_test();
     run_memdev_test();
-
+    run_ata_test();
     dbg(DBG_TESTPASS, "PASS testing drivers\n");
 }

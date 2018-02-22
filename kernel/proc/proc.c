@@ -358,10 +358,10 @@ do_waitpid(pid_t pid, int options, int *status)
             sched_cancellable_sleep_on(&curproc->p_wait); // ? cancellable ?
             child = find_dead_child(curproc);
         }
-        clean_child_proc(child);
         if(status) {
             *status = child->p_status;
         }
+        clean_child_proc(child);
         return child->p_pid;
     } else {
         proc_t *child = find_specific_child(pid, curproc);
@@ -370,10 +370,10 @@ do_waitpid(pid_t pid, int options, int *status)
         while(child->p_state != PROC_DEAD) {
             sched_cancellable_sleep_on(&curproc->p_wait); // ? cancellable ? 
         }
-        clean_child_proc(child);
         if(status) {
             *status = child->p_status;
         }
+        clean_child_proc(child);
         return child->p_pid;
     }
     return 0;

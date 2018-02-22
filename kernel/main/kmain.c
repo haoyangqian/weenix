@@ -273,8 +273,8 @@ initproc_create(void)
 static void *
 initproc_run(int arg1, void *arg2)
 {
-    //run_proc_test();
-    run_driver_test();
+    run_proc_test();
+    //run_driver_test();
     return NULL;
 }
 

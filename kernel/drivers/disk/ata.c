@@ -398,8 +398,8 @@ ata_read(blockdev_t *bdev, char *data, blocknum_t blocknum, unsigned int count)
     for(i = 0;i < count;++i) {
         int ret = ata_do_operation(ad, data, (blocknum + i), 0);
         if(ret != 0) return ret;
+        data += BLOCK_SIZE; // move one block size forward
     }
-    data += BLOCK_SIZE; // move one block size forward
     return 0;
 }
 
@@ -422,7 +422,7 @@ ata_write(blockdev_t *bdev, const char *data, blocknum_t blocknum, unsigned int 
     for(i = 0;i < count;++i) {
         int ret = ata_do_operation(ad, to_write, (blocknum + i), 1);
         if(ret != 0) return ret;
-        to_write += BLOCK_SIZE;
+        to_write += BLOCK_SIZE; // move one block size forward
     }
     return 0;
 }
@@ -519,6 +519,7 @@ static int
 ata_do_operation(ata_disk_t *adisk, char *data, blocknum_t blocknum, int write)
 {
     uint8_t channel = adisk->ata_channel;
+
     /* Lock the mutex and set the IPL. */
     uint8_t old_ipl = intr_getipl();
     intr_setipl(INTR_DISK_SECONDARY);
@@ -566,15 +567,11 @@ ata_do_operation(ata_disk_t *adisk, char *data, blocknum_t blocknum, int write)
     /* Alert the DMA controller that we have received the interrupt and, 
     *  if necessary, clear the error bit. */
     dma_reset(ATA_CHANNELS[channel].atac_busmaster);
-    if(status & ATA_SR_ERR) {
-        ata_outb_reg(channel, ATA_REG_STATUS, status | ATA_SR_ERR);
-    }
 
     /* Now we are finished. Restore the IPL, release any locks we have, 
     *  and return the status of the DMA operation. */
-    intr_setipl(old_ipl);
     kmutex_unlock(&adisk->ata_mutex);
-
+    intr_setipl(old_ipl);
     return ret;
 }
 
@@ -589,7 +586,8 @@ ata_do_operation(ata_disk_t *adisk, char *data, blocknum_t blocknum, int write)
 static void
 ata_intr(regs_t *regs, void *arg)
 {
-    sched_wakeup_on(&(((ata_disk_t *) arg)->ata_waitq));
+    ata_disk_t *atad = (ata_disk_t *) arg;
+    sched_wakeup_on(&atad->ata_waitq);
 }
 
 /*

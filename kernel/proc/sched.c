@@ -186,6 +186,7 @@ sched_switch(void)
 
         /* if the runq is empty, wait an interupt */
         while(sched_queue_empty(&kt_runq)) {
+                intr_disable();
                 intr_setipl(IPL_LOW);
                 intr_wait(); // wait until a interupt comes
                 intr_setipl(IPL_HIGH);
