@@ -425,9 +425,13 @@ init_special_vnode(vnode_t *vn)
  */
 static int
 special_file_read(vnode_t *file, off_t offset, void *buf, size_t count)
-{
-        NOT_YET_IMPLEMENTED("VFS: special_file_read");
-        return 0;
+{       
+        /* if the file is not a byte device */
+        if(file->vn_cdev == NULL) return -ENOTSUP;
+
+        bytedev_t *bdev = file->vn_cdev;
+        int ret = bdev->read(bdev, (int) offset, buf, (int) count);
+        return ret;
 }
 
 /*
@@ -439,8 +443,12 @@ special_file_read(vnode_t *file, off_t offset, void *buf, size_t count)
 static int
 special_file_write(vnode_t *file, off_t offset, const void *buf, size_t count)
 {
-        NOT_YET_IMPLEMENTED("VFS: special_file_write");
-        return 0;
+        /* if the file is not a byte device */
+        if(file->vn_cdev == NULL) return -ENOTSUP;
+
+        bytedev_t *bdev = file->vn_cdev;
+        int ret = bdev->write(bdev, (int) offset, buf, (int) count);
+        return ret;
 }
 
 /* Memory map the special file represented by <file>. All of the

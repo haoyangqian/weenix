@@ -137,6 +137,20 @@ proc_create(char *name)
         proc_initproc = p;
     }
 
+#ifdef __VFS__
+    int i;
+    for(i = 0;i < NFILES;++i) {
+        p->p_files[i] == NULL;
+    }
+
+    if (p->p_pid > 3){
+        p->p_cwd = p->p_pproc->p_cwd;
+        vref(p->p_cwd);
+    } else {
+        p->p_cwd = NULL;
+    }
+#endif
+
     return p;
 }
 
@@ -191,6 +205,22 @@ proc_cleanup(int status)
 
     /* remove from the global proc list*/
     list_remove(&curproc->p_list_link);
+
+#ifdef __VFS__
+    int i;
+    for (i = 0; i < NFILES; i++){
+        if (curproc->p_files[i] != NULL){
+            do_close(i);
+        }
+    }
+
+    if (curproc->p_pid != 2 && curproc->p_pid != 3){
+        KASSERT(curproc->p_cwd != NULL);
+        vput(curproc->p_cwd);
+        curproc->p_cwd = NULL;
+    }
+#endif
+
 
     /* waking up parent if it is waiting */
     sched_wakeup_on(&curproc->p_pproc->p_wait);
