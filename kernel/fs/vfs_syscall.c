@@ -46,16 +46,20 @@
  */
 int
 do_read(int fd, void *buf, size_t nbytes)
-{
+{   
+        if(fd < 0 || fd >= NFILES) {
+            return -EBADF;
+        }
+
         file_t *file = fget(fd);
         
         /* fd is not a valid file descriptor */
-        if(file == NULL) return EBADF;
+        if(file == NULL) return -EBADF;
         
         /* fd is not open for reading */
         if((file->f_mode & FMODE_READ) == 0) {
                 fput(file);
-                return EBADF;
+                return -EBADF;
         }
 
         vnode_t *vnode = file->f_vnode;
@@ -89,6 +93,10 @@ do_read(int fd, void *buf, size_t nbytes)
 int
 do_write(int fd, const void *buf, size_t nbytes)
 {
+        if(fd < 0 || fd >= NFILES) {
+            return -EBADF;
+        }
+
         file_t *file = fget(fd);
         
         /* fd is not a valid file descriptor */
@@ -136,10 +144,18 @@ do_write(int fd, const void *buf, size_t nbytes)
 int
 do_close(int fd)
 {
-        file_t *file = fget(fd);
+        /* do not use fget to increment the frefcount */
+        if(fd < 0 || fd >= NFILES || curproc->p_files[fd] == NULL) {
+            return -EBADF;
+        }
         
-        /* fd is not a valid file descriptor */
-        if(file == NULL) return EBADF;
+        file_t *file = curproc->p_files[fd];
+
+        /* zero p_files and fput the file */
+        curproc->p_files[fd] = NULL;
+        fput(file);
+
+        return 0;
 }
 
 /* To dup a file:
@@ -161,8 +177,28 @@ do_close(int fd)
 int
 do_dup(int fd)
 {
-        NOT_YET_IMPLEMENTED("VFS: do_dup");
-        return -1;
+        if (fd < 0 || fd >= NFILES || curproc->p_files[fd] == NULL){
+            return -EBADF;
+        }
+
+        /* increment fd's refcount */
+        file_t *file = fget(fd);
+
+        /* fd is not a valid file descriptor */
+        if(file == NULL) return -EBADF;
+
+        int newfd = get_empty_fd(curproc);
+
+        if(newfd < 0) {
+            KASSERT(newfd == -EMFILE);
+            fput(file);
+            return -EMFILE;
+        }
+
+        /* point the new fd to the same file_t* as the given fd */
+        curproc->p_files[newfd] = file;
+
+        return newfd;
 }
 
 /* Same as do_dup, but insted of using get_empty_fd() to get the new fd,
@@ -177,8 +213,25 @@ do_dup(int fd)
 int
 do_dup2(int ofd, int nfd)
 {
-        NOT_YET_IMPLEMENTED("VFS: do_dup2");
-        return -1;
+        /* make sure ofd/nfd are in range */
+        if (ofd < 0 || ofd >= NFILES || nfd < 0 || nfd >= NFILES ||
+            curproc->p_files[ofd] == NULL){
+            return -EBADF;
+        }
+
+        if(ofd == nfd) {
+            return ofd;
+        } else if(curproc->p_files[nfd] != NULL) {
+            KASSERT(do_close(nfd) == 0);   
+        }
+
+        /* increment ofd's refcount */
+        file_t *file = fget(ofd);
+        KASSERT(file != NULL);
+
+        curproc->p_files[nfd] = file;
+
+        return nfd;
 }
 
 /*
