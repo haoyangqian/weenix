@@ -24,8 +24,14 @@
 int
 lookup(vnode_t *dir, const char *name, size_t len, vnode_t **result)
 {
-        NOT_YET_IMPLEMENTED("VFS: lookup");
-        return 0;
+    KASSERT(dir != NULL);
+    if(dir->vn_ops->lookup == NULL) {
+        return -ENOTDIR;
+    }
+
+    KASSERT(name != NULL);
+    int ret = dir->vn_ops->lookup(dir, name, len, result);
+    return ret;
 }
 
 
@@ -51,7 +57,101 @@ int
 dir_namev(const char *pathname, size_t *namelen, const char **name,
           vnode_t *base, vnode_t **res_vnode)
 {
-        NOT_YET_IMPLEMENTED("VFS: dir_namev");
+        /* the pathname starts with '\0'*/
+        if(*pathname == '\0') {
+            return -EINVAL;
+        }
+
+        vnode_t *parent = NULL;
+        vnode_t *current = NULL;
+        if(*pathname == '/') {
+            current = vfs_root_vn;
+
+            while(*pathname == '/') pathname++;
+        } else if(base == NULL){
+            current = curproc->p_cwd;
+        } else {
+            current = base;
+        }
+
+        KASSERT(current != NULL);
+
+        vref(current);
+
+        /* the pathname starts with '\0'*/
+        if(*pathname == '\0') {
+            *namelen = 1;
+            *name = ".";
+            *res_vnode = current;
+            return 0;
+        }
+
+        int lookup_result = 1;
+        int current_start = 0;
+        int prev_start = 0;
+        size_t len = 0;
+        int errorcode;
+        while(lookup_result >= 0 && pathname[current_start]!= '\0') {
+            if(parent != NULL) {
+                vput(parent);
+            }
+
+            parent = current;
+            len = 0;
+            while(pathname[current_start + len] != '/' && pathname[current_start + len] != '\0') {
+                len++;
+            }
+
+            dbg(DBG_VFS, "lookup_result: %d current_start:%d len:%d\n",lookup_result, current_start, len);
+
+            if(len > NAME_LEN) {
+                errorcode = -ENAMETOOLONG;
+                break;
+            } 
+
+            lookup_result = lookup(parent, (pathname + current_start), len, &current);
+
+            if(lookup_result == -ENOTDIR) {
+                errorcode = -ENOTDIR;
+                break;
+            }
+
+            prev_start = current_start;
+            current_start += len;
+
+            /* remove any trailing zeros*/
+            while(pathname[current_start] == '/') {
+                current_start++;
+            }
+        }
+
+        /* check the error code*/
+        if (lookup_result < 0 && lookup_result != -ENOENT){
+            dbg(DBG_VFS, "lookup failed with error code %d\n", lookup_result);
+            vput(parent);
+
+            return lookup_result;
+        } else if (errorcode != 0){
+            dbg(DBG_VFS, "lookup failed with error code %d\n", errorcode);
+            vput(parent);
+
+            return errorcode;
+        } else if (pathname[next_name] != '\0'){
+            KASSERT(lookup_result == -ENOENT);
+            dbg(DBG_VFS, "lookup failed with error code %d\n", -ENOENT);
+
+            vput(parent);
+            return -ENOENT;
+        }
+
+        if(lookup_result == 0) {
+            vput(current);
+        }
+
+        *namelen = len;
+        *name = pathname + prev_start;
+        *res_vnode = parent;
+        
         return 0;
 }
 

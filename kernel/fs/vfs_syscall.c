@@ -262,8 +262,11 @@ do_dup2(int ofd, int nfd)
 int
 do_mknod(const char *path, int mode, unsigned devid)
 {
-        NOT_YET_IMPLEMENTED("VFS: do_mknod");
-        return -1;
+        if(!S_ISCHR(mode) && !S_ISBLK(mode)){
+            return -EINVAL;
+        }
+
+        
 }
 
 /* Use dir_namev() to find the vnode of the dir we want to make the new
