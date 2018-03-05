@@ -122,7 +122,7 @@ do_open(const char *filename, int oflags)
         if(open_ret < 0) {
             curproc->p_files[fd] = NULL;
             fput(file);
-            return open_result;
+            return open_ret;
         }
 
         /* 6. Fill in the fields of the file_t.*/

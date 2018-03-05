@@ -430,7 +430,7 @@ special_file_read(vnode_t *file, off_t offset, void *buf, size_t count)
         if(file->vn_cdev == NULL) return -ENOTSUP;
 
         bytedev_t *bdev = file->vn_cdev;
-        int ret = bdev->read(bdev, (int) offset, buf, (int) count);
+        int ret = bdev->cd_ops->read(bdev, (int) offset, buf, (int) count);
         return ret;
 }
 
@@ -447,7 +447,7 @@ special_file_write(vnode_t *file, off_t offset, const void *buf, size_t count)
         if(file->vn_cdev == NULL) return -ENOTSUP;
 
         bytedev_t *bdev = file->vn_cdev;
-        int ret = bdev->write(bdev, (int) offset, buf, (int) count);
+        int ret = bdev->cd_ops->write(bdev, (int) offset, buf, (int) count);
         return ret;
 }
 

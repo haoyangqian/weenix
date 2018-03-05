@@ -723,12 +723,12 @@ vfstest_open(void)
 
         /* Cannot open a file as a directory */
         create_file("file08");
-        syscall_fail(open("file08/", O_RDONLY, 0), ENOTDIR);
+        syscall_fail(open("file08/", O_RDONLY, 0), ENOTDIR);   // TODO: ??????
         syscall_success(mkdir("dirA", 0777));
         syscall_success(chdir("dirA"));
         create_file("file09");
         syscall_success(chdir(".."));
-        syscall_fail(open("dirA/file09/", O_RDONLY, 0), ENOTDIR);
+        syscall_fail(open("dirA/file09/", O_RDONLY, 0), ENOTDIR); // TODO: ??????
 
         /* Succeeds with trailing slash */
         syscall_success(mkdir("dirB", 0777));

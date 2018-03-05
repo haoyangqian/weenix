@@ -57,18 +57,18 @@ do_read(int fd, void *buf, size_t nbytes)
         if(file == NULL) return -EBADF;
         
         /* fd is not open for reading */
-        if((file->f_mode & FMODE_READ) == 0) {
+        if(!(file->f_mode & FMODE_READ)) {
                 fput(file);
                 return -EBADF;
         }
 
         vnode_t *vnode = file->f_vnode;
-        assert(vnode != NULL);
+        KASSERT(vnode != NULL);
 
          /* fd refers to a directory */
-        if(S_ISDIR(vnode->vn_mode)) {
+        if(vnode->vn_ops->read == NULL) {
                 fput(file);
-                return EISDIR;
+                return -EISDIR;
         }
         /* call virtual read vn_op */
         int read_bytes = vnode->vn_ops->read(vnode, file->f_pos, buf, nbytes);
@@ -109,29 +109,36 @@ do_write(int fd, const void *buf, size_t nbytes)
         }
 
         vnode_t *vnode = file->f_vnode;
-        assert(vnode != NULL);
+        KASSERT(vnode != NULL);
 
          /* fd refers to a directory */
-        if(S_ISDIR(vnode->vn_mode)) {
+        if(vnode->vn_ops->write == NULL) {
                 fput(file);
                 return -EISDIR;
         }
 
         /* f_mode is APPEND, to the end of the file */
-        if((file->f_mode & FMODE_APPEND) == 1) {
+        if(file->f_mode & FMODE_APPEND) {
                 do_lseek(fd, 0, SEEK_END);
         }
 
         /* call virtual read vn_op */
         int write_bytes = vnode->vn_ops->write(vnode, file->f_pos, buf, nbytes);
 
-        /* update f_pos */
-        file->f_pos += write_bytes;
+        /* update f_pos by lseek */
+        int ret = write_bytes;
+
+        if(write_bytes > 0) {
+            int seek_val = do_lseek(fd, write_bytes, SEEK_CUR);
+            if(seek_val < 0) {
+                ret = seek_val;
+            }
+        }
 
         /* fput() it */
         fput(file);
 
-        return write_bytes;
+        return ret;
 }
 
 /*
@@ -313,7 +320,7 @@ do_mkdir(const char *path)
         size_t namelen;
         const char* name;
         vnode_t *dir;
-        int dir_ret = dir_namev(path, namelen, name, NULL, dir);
+        int dir_ret = dir_namev(path, &namelen, &name, NULL, &dir);
 
         if(dir_ret < 0) {
             return dir_ret;
@@ -326,7 +333,7 @@ do_mkdir(const char *path)
         int ret;
         if(lookup_ret == -ENOTDIR) {
             ret = -ENOTDIR;
-        } else if(lookup_ret = 0) {
+        } else if(lookup_ret == 0) {
             /* this path already exist */
             vput(base_node);
             ret = -EEXIST;
@@ -363,7 +370,7 @@ do_rmdir(const char *path)
         size_t namelen;
         const char* name;
         vnode_t *dir;
-        int dir_ret = dir_namev(path, namelen, name, NULL, dir);
+        int dir_ret = dir_namev(path, &namelen, &name, NULL, &dir);
 
         if(dir_ret < 0) {
             return dir_ret;
@@ -422,7 +429,7 @@ do_unlink(const char *path)
         size_t namelen;
         const char* name;
         vnode_t *dir;
-        int dir_ret = dir_namev(path, namelen, name, NULL, dir);
+        int dir_ret = dir_namev(path, &namelen, &name, NULL, &dir);
 
         if(dir_ret < 0) {
             return dir_ret;
@@ -480,14 +487,14 @@ do_link(const char *from, const char *to)
 {
         /* get the 'from' vnode */
         vnode_t* from_node;
-        int open_ret = open_namev(fron, O_RDONLY, &from_node, NULL);
+        int open_ret = open_namev(from, O_RDONLY, &from_node, NULL);
 
         if(open_ret < 0) {
             dbg(DBG_VFS, "open namev 'from' fail.\n");
             return open_ret;
         }
 
-        size_t nameln;
+        size_t namelen;
         const char* name;
         vnode_t* to_node; // dir vnode
 
@@ -537,7 +544,7 @@ do_rename(const char *oldname, const char *newname)
             return link_ret;
         }
         /* unlink oldname */
-        return unlink(oldname);
+        return do_unlink(oldname);
 }
 
 /* Make the named directory the current process's cwd (current working
@@ -565,7 +572,7 @@ do_chdir(const char *path)
         }
 
         /* if the new_wd is not DIR */
-        if(new_wd->vn_ops->mkdir != NULL){
+        if(new_wd->vn_ops->mkdir == NULL){
             vput(new_wd);
             return -ENOTDIR;
         }
@@ -610,7 +617,7 @@ do_getdent(int fd, struct dirent *dirp)
         }
 
         /* read the directory entry by readdir */
-        int read_ret = file->f_vnode->vn_ops->readdir(file->f_vnode, f->f_pos, dirp);
+        int read_ret = file->f_vnode->vn_ops->readdir(file->f_vnode, file->f_pos, dirp);
 
         if(read_ret < 1) {
             fput(file);
@@ -686,7 +693,7 @@ do_stat(const char *path, struct stat *buf)
             return open_ret;
         }
 
-        KASSERT(base_node->vn_ops->stat == NULL);
+        KASSERT(base_node->vn_ops->stat != NULL);
         
         int stat_result = base_node->vn_ops->stat(base_node, buf);
 

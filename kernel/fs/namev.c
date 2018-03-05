@@ -94,7 +94,9 @@ dir_namev(const char *pathname, size_t *namelen, const char **name,
         int current_start = 0;
         int prev_start = 0;
         size_t len = 0;
-        int errorcode;
+        int errorcode = 0;
+        //int trailing = 0; // flag for trailing '/'
+
         while(lookup_result >= 0 && pathname[current_start]!= '\0') {
             /* decrement the refcount of parent */
             if(parent != NULL) {
@@ -117,31 +119,45 @@ dir_namev(const char *pathname, size_t *namelen, const char **name,
             /* lookup the current vnode, if success, increment the refcount in lookup */
             lookup_result = lookup(parent, (pathname + current_start), len, &current);
 
+            /* if the parent is not a DIR */
             if(lookup_result == -ENOTDIR) {
                 errorcode = -ENOTDIR;
                 break;
             }
 
+            /* update the offset */
             prev_start = current_start;
             current_start += len;
+            //trailing = 0;
 
             /* remove any trailing zeros*/
             while(pathname[current_start] == '/') {
+                //trailing = 1;
                 current_start++;
             }
+
         }
 
         /* check the error code*/
-        if (lookup_result < 0){
+        if (lookup_result < 0 && lookup_result != -ENOENT){
+            /* if we break loop with lookup error other than -ENOENT */
             dbg(DBG_VFS, "lookup failed with error code %d\n", lookup_result);
             vput(parent);
 
             return lookup_result;
         } else if (errorcode != 0){
+            /* if we get other errorcode in the loop */
             dbg(DBG_VFS, "lookup failed with error code %d\n", errorcode);
             vput(parent);
 
             return errorcode;
+        } else if (pathname[current_start] != '\0') {
+            /* if we get here, means that one of the entries in the path is not exist */
+            KASSERT(lookup_result == -ENOENT);
+             dbg(DBG_VFS, "lookup failed with error code %d\n", -ENOENT);
+
+            vput(parent);
+            return -ENOENT;
         }
 
         if(lookup_result == 0) {
@@ -196,7 +212,7 @@ open_namev(const char *pathname, int flag, vnode_t **res_vnode, vnode_t *base)
             ret = lookup_res;
         } else if((*res_vnode)->vn_ops->mkdir != NULL && 
             ((flag & O_WRONLY) || (flag & O_RDWR))) {
-            ret_val = -EISDIR;
+            ret = -EISDIR;
             vput(*res_vnode);
             *res_vnode = NULL;
         }

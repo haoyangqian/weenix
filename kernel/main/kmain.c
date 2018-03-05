@@ -47,6 +47,7 @@
 #include "test/s5fs_test.h"
 #include "test/proc_test.h"
 #include "test/driver_test.h"
+//#include "test/vfstest/vfstest.h"
 
 GDB_DEFINE_HOOK(boot)
 GDB_DEFINE_HOOK(initialized)
@@ -184,9 +185,53 @@ idleproc_run(int arg1, void *arg2)
         /* Once you have VFS remember to set the current working directory
          * of the idle and init processes */
 
+        /* set cwd for idle proc */
+        curproc->p_cwd = vfs_root_vn;
+        vref(vfs_root_vn);
+
+        /* set cwd for init proc */
+        initthr->kt_proc->p_cwd = vfs_root_vn;
+        vref(vfs_root_vn);
+
         /* Here you need to make the null, zero, and tty devices using mknod */
         /* You can't do this until you have VFS, check the include/drivers/dev.h
          * file for macros with the device ID's you will need to pass to mknod */
+
+        /* make dev device */
+        int mkdir_res = do_mkdir("/dev");
+
+        if (mkdir_res == 0){
+            /* make tty0 device */
+            if (do_mknod("/dev/tty0", S_IFCHR, MKDEVID(2, 0)) < 0){
+                panic("unable to create tty0\n");
+            }
+
+            /* make tty1 device */
+            if (do_mknod("/dev/tty1", S_IFCHR, MKDEVID(2, 1)) < 0){
+                panic("unable to create tty1\n");
+            }
+
+            /* make tty2 device */
+            if (do_mknod("/dev/tty2", S_IFCHR, MKDEVID(2, 2)) < 0){
+                panic("unable to create tty2\n");
+            }
+
+            /* make null device */
+            if (do_mknod("/dev/null", S_IFCHR, MEM_NULL_DEVID) < 0){
+                panic("unable to create /dev/null");
+            } 
+
+            /* make zero device */
+            if (do_mknod("/dev/zero", S_IFCHR, MEM_ZERO_DEVID) < 0){
+                panic("unable to create /dev/zero");
+            }
+        } else {
+            KASSERT(mkdir_res == -EEXIST && "making dev device fail");
+        }
+
+        int mktmp_res = do_mkdir("/tmp");
+
+        KASSERT((mktmp_res == 0 || mktmp_res == -EEXIST) && "making tmp fail\n");
 #endif
 
         /* Finally, enable interrupts (we want to make sure interrupts
@@ -273,8 +318,9 @@ initproc_create(void)
 static void *
 initproc_run(int arg1, void *arg2)
 {
-    run_proc_test();
+    //run_proc_test();
     //run_driver_test();
+    vfstest_main(1, NULL);
     return NULL;
 }
 

@@ -140,7 +140,7 @@ proc_create(char *name)
 #ifdef __VFS__
     int i;
     for(i = 0;i < NFILES;++i) {
-        p->p_files[i] == NULL;
+        p->p_files[i] = NULL;
     }
 
     if (p->p_pid > 3){
