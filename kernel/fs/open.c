@@ -73,6 +73,63 @@ get_empty_fd(proc_t *p)
 int
 do_open(const char *filename, int oflags)
 {
-        NOT_YET_IMPLEMENTED("VFS: do_open");
-        return -1;
+        /* 1. get the next empty file descriptor */
+        int fd = get_empty_fd(curproc);
+
+        if(fd < 0) {
+            return -EMFILE;
+        }
+
+        /* 2. call fget to get a fresh file_t */
+        file_t *file = fget(-1);
+
+        if(file == NULL) {
+            return -ENOMEM;
+        }
+
+        KASSERT(file != NULL);
+        KASSERT(file->f_refcount == 1);
+        
+        /* 3. Save the file_t in curproc's file descriptor table. */
+        KASSERT(curproc->p_files[fd] == NULL);
+        curproc->p_files[fd] = file;
+
+        /* 4. Set file_t->f_mode to OR of FMODE_(READ|WRITE|APPEND) based on
+        *  oflags, which can be O_RDONLY, O_WRONLY or O_RDWR, possibly OR'd with
+        *  O_APPEND. */
+        file->f_mode = 0;
+        if(oflags & O_APPEND) {
+            file->f_mode = FMODE_APPEND;
+        }
+
+        if( (oflags & O_WRONLY) && !(oflags & O_RDWR)) {
+            file->f_mode |= FMODE_WRITE;
+        } else if((oflags & O_RDWR) && !(oflags & O_WRONLY)) {
+            file->f_mode |=  FMODE_READ | FMODE_WRITE;
+        } else if(oflags == O_RDONLY || oflags == (O_RDONLY | O_CREAT)
+            || oflags == (O_RDONLY | O_APPEND)
+            || oflags == (O_RDONLY | O_CREAT | O_APPEND)) {
+            file->f_mode |= FMODE_READ;
+        } else {
+            dbg(DBG_VFS, "oflags is not valid.");
+            fput(file);
+            curproc->p_files[fd] = NULL;
+            return -EINVAL;
+        }
+
+        /* 5. Use open_namev() to get the vnode for the file_t. */
+        int open_ret = open_namev(filename, oflags, &file->f_vnode, NULL);
+        if(open_ret < 0) {
+            curproc->p_files[fd] = NULL;
+            fput(file);
+            return open_result;
+        }
+
+        /* 6. Fill in the fields of the file_t.*/
+        file->f_pos = 0;
+        file->f_refcount = 1;
+
+        /* 7. Return new fd */
+        return fd;
+
 }
