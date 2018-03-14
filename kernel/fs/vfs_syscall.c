@@ -74,12 +74,25 @@ do_read(int fd, void *buf, size_t nbytes)
         int read_bytes = vnode->vn_ops->read(vnode, file->f_pos, buf, nbytes);
 
         /* update f_pos */
-        file->f_pos += read_bytes;
+        int ret_val = read_bytes;
+        if(read_bytes == 0 && nbytes != 0) {
+            int seek_ret = do_lseek(fd, 0, SEEK_END);
+
+            if(seek_ret < 0) {
+                ret_val = seek_ret;
+            }
+        } else if(read_bytes > 0){
+            int seek_ret = do_lseek(fd, read_bytes, SEEK_CUR);
+
+            if(seek_ret < 0) {
+                ret_val = seek_ret;
+            }
+        }
 
         /* fput() it */
         fput(file);
 
-        return read_bytes;
+        return ret_val;
 }
 
 /* Very similar to do_read.  Check f_mode to be sure the file is writable.  If
@@ -129,9 +142,9 @@ do_write(int fd, const void *buf, size_t nbytes)
         int ret = write_bytes;
 
         if(write_bytes > 0) {
-            int seek_val = do_lseek(fd, write_bytes, SEEK_CUR);
-            if(seek_val < 0) {
-                ret = seek_val;
+            int seek_ret = do_lseek(fd, write_bytes, SEEK_CUR);
+            if(seek_ret < 0) {
+                ret = seek_ret;
             }
         }
 

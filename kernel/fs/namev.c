@@ -25,6 +25,7 @@ int
 lookup(vnode_t *dir, const char *name, size_t len, vnode_t **result)
 {
     KASSERT(dir != NULL);
+
     if(dir->vn_ops->lookup == NULL) {
         return -ENOTDIR;
     }
@@ -32,8 +33,6 @@ lookup(vnode_t *dir, const char *name, size_t len, vnode_t **result)
     KASSERT(name != NULL);
     int ret = dir->vn_ops->lookup(dir, name, len, result);
 
-    /* increment the refcount on *result */
-    if(ret >= 0 && *result != NULL) vref(*result);
     return ret;
 }
 
@@ -95,7 +94,6 @@ dir_namev(const char *pathname, size_t *namelen, const char **name,
         int prev_start = 0;
         size_t len = 0;
         int errorcode = 0;
-        //int trailing = 0; // flag for trailing '/'
 
         while(lookup_result >= 0 && pathname[current_start]!= '\0') {
             /* decrement the refcount of parent */
@@ -128,7 +126,6 @@ dir_namev(const char *pathname, size_t *namelen, const char **name,
             /* update the offset */
             prev_start = current_start;
             current_start += len;
-            //trailing = 0;
 
             /* remove any trailing zeros*/
             while(pathname[current_start] == '/') {
@@ -159,7 +156,7 @@ dir_namev(const char *pathname, size_t *namelen, const char **name,
             vput(parent);
             return -ENOENT;
         }
-
+        
         if(lookup_result == 0) {
             vput(current);
         }

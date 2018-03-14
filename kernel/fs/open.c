@@ -73,6 +73,7 @@ get_empty_fd(proc_t *p)
 int
 do_open(const char *filename, int oflags)
 {
+
         /* 1. get the next empty file descriptor */
         int fd = get_empty_fd(curproc);
 
@@ -123,6 +124,21 @@ do_open(const char *filename, int oflags)
             curproc->p_files[fd] = NULL;
             fput(file);
             return open_ret;
+        }
+        /* if it is a DIR */
+        if(file->f_vnode->vn_ops->mkdir != NULL) {
+            if((oflags & O_WRONLY) || (oflags & O_RDWR)){
+                curproc->p_files[fd] = NULL;
+                fput(file);
+                return -EISDIR;
+            }
+        } else {
+            /* if it is a FILE */
+            if(filename[strlen(filename)-1] == '/') {
+                curproc->p_files[fd] = NULL;
+                fput(file);
+                return -ENOTDIR;
+            }
         }
 
         /* 6. Fill in the fields of the file_t.*/
