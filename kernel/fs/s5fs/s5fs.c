@@ -213,7 +213,52 @@ s5fs_mount(struct fs *fs)
 static void
 s5fs_read_vnode(vnode_t *vnode)
 {
-        NOT_YET_IMPLEMENTED("S5FS: s5fs_read_vnode");
+    pframe_t *vp;
+
+    /* get the s5fs struct and inode */
+    s5fs_t *s5 = VNODE_TO_S5FS(vnode);
+    if(pframe_get(S5FS_TO_VMOBJ(s5), S5_INODE_BLOCK(vnode->vn_vno), &vp) < 0){
+        panic("something wrong in pframe_get!\n");
+    }
+
+    KASSERT(vp);
+    pframe_pin(vp);
+
+    s5_inode_t *inode = ((s5_inode_t *) vp->pf_addr) + S5_INODE_OFFSET(vnode->vn_vno);
+    KASSERT(inode && inode->s5_number == vnode->vn_vno);
+
+    /* update the linkcount */
+    inode->s5_linkcount++;
+
+    /* initailize the vn_i and vn_len */
+    vnode->vn_i = inode;
+    vnode->vn_len = inode->s5_size;
+
+    switch(inode->s5_type){
+        case S5_TYPE_DATA:
+            vnode->vn_mode = S_IFREG;
+            vnode->vn_ops = &s5fs_file_vops;
+            break;
+        case S5_TYPE_DIR:
+            vnode->vn_mode = S_IFDIR;
+            vnode->vn_ops = &s5fs_dir_vops;
+            break;
+        case S5_TYPE_CHR:
+            vnode->vn_mode = S_IFCHR;
+            vnode->vn_ops = NULL;
+            vnode->vn_devid = (devid_t)inode->s5_indirect_block;
+            break;
+        case S5_TYPE_BLK:
+            vnode->vn_mode = S_IFBLK;
+            vnode->vn_ops = NULL;
+            vnode->vn_devid = (devid_t)inode->s5_indirect_block;
+            break;
+        default:
+            panic("inode %d has unknown/invalid type %d!!\n",
+                              (int)vnode->vn_vno, (int)inode->s5_type);
+    }
+
+    s5_dirty_inode(s5, inode);
 }
 
 /*
@@ -227,7 +272,26 @@ s5fs_read_vnode(vnode_t *vnode)
 static void
 s5fs_delete_vnode(vnode_t *vnode)
 {
-        NOT_YET_IMPLEMENTED("S5FS: s5fs_delete_vnode");
+    pframe_t *vp;
+
+    /* get the s5fs struct and inode */
+    s5fs_t *s5 = VNODE_TO_S5FS(vnode);
+    if(pframe_get(S5FS_TO_VMOBJ(s5), S5_INODE_BLOCK(vnode->vn_vno), &vp) < 0){
+        panic("something wrong in pframe_get!\n");
+    }
+    KASSERT(vp);
+
+    s5_inode_t *inode = ((s5_inode_t *) vp->pf_addr) + S5_INODE_OFFSET(vnode->vn_vno);
+    KASSERT(inode && inode->s5_number == vnode->vn_vno);
+    
+    /* decrement the linkcount, free the inode if neccessary */
+    if(0 == --inode->s5_linkcount) {
+        s5_free_inode(vnode);
+    } else {
+        s5_dirty_inode(VNODE_TO_S5FS(vnode), inode);
+    }
+
+    pframe_unpin(vp);
 }
 
 /*
@@ -240,8 +304,7 @@ s5fs_delete_vnode(vnode_t *vnode)
 static int
 s5fs_query_vnode(vnode_t *vnode)
 {
-        NOT_YET_IMPLEMENTED("S5FS: s5fs_query_vnode");
-        return 0;
+    return (VNODE_TO_S5INODE(vnode)->s5_linkcount > 1);
 }
 
 /*
@@ -329,16 +392,20 @@ s5fs_umount(fs_t *fs)
 static int
 s5fs_read(vnode_t *vnode, off_t offset, void *buf, size_t len)
 {
-        NOT_YET_IMPLEMENTED("S5FS: s5fs_read");
-        return -1;
+    kmutex_lock(&vnode->vn_mutex);
+    int ret = s5_read_file(vnode, offset, buf, len);
+    kmutex_unlock(&vnode->vn_mutex);
+    return ret;
 }
 
 /* Simply call s5_write_file. */
 static int
 s5fs_write(vnode_t *vnode, off_t offset, const void *buf, size_t len)
 {
-        NOT_YET_IMPLEMENTED("S5FS: s5fs_write");
-        return -1;
+    kmutex_lock(&vnode->vn_mutex);
+    int ret = s5_write_file(vnode, offset, buf, len);
+    kmutex_unlock(&vnode->vn_mutex);
+    return ret;
 }
 
 /* This function is deceptivly simple, just return the vnode's
@@ -366,8 +433,39 @@ s5fs_mmap(vnode_t *file, vmarea_t *vma, mmobj_t **ret)
 static int
 s5fs_create(vnode_t *dir, const char *name, size_t namelen, vnode_t **result)
 {
-        NOT_YET_IMPLEMENTED("S5FS: s5fs_create");
-        return -1;
+    kmutex_lock(&dir->vn_mutex);
+
+    fs_t *fs = VNODE_TO_S5FS(dir)->s5f_fs;
+
+    int ino = s5_alloc_inode(fs, S5_TYPE_DATA, NULL);
+
+    if(ino <= 0) {
+        dbg(DBG_S5FS, "unable to alloc a new inode.\n");
+        kmutex_unlock(&dir->vn_mutex);
+        return ino;
+    }
+
+    vnode_t *child = vget(fs, ino);
+
+    kmutex_lock(&child->vn_mutex);
+
+    int link_res = s5_link(dir, child, name, namelen);
+
+    if(link_res < 0) {
+        dbg(DBG_S5FS, "error link entry\n");
+        vput(child);
+        kmutex_unlock(&child->vn_mutex);
+        kmutex_unlock(&dir->vn_mutex);
+        return link_res;
+    }
+
+    KASSERT(child->vn_refcount == 1);
+    KASSERT(VNODE_TO_S5INODE(child)->s5_linkcount == 2);
+
+    *result = child;
+    kmutex_unlock(&child->vn_mutex);
+    kmutex_unlock(&dir->vn_mutex);
+    return 0;
 }
 
 
