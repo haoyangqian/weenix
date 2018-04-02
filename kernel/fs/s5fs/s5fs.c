@@ -731,6 +731,7 @@ s5fs_rmdir(vnode_t *parent, const char *name, size_t namelen)
     vnode_t *child = vget(fs, ino);
     kmutex_lock(&child->vn_mutex);
 
+    /* if there is remaining stuff other than . and .. */
     if((unsigned)child->vn_len > 2*sizeof(s5_dirent_t)) {
         vput(child);
         kmutex_unlock(&child->vn_mutex);
@@ -756,14 +757,39 @@ s5fs_rmdir(vnode_t *parent, const char *name, size_t namelen)
  *
  * Here you need to use s5_read_file() to read a s5_dirent_t from a directory
  * and copy that data into the given dirent. The value of d_off is dependent on
- * your implementation and may or may not b e necessary.  Finally, return the
+ * your implementation and may or may not be necessary.  Finally, return the
  * number of bytes read.
  */
 static int
 s5fs_readdir(vnode_t *vnode, off_t offset, struct dirent *d)
 {
-        NOT_YET_IMPLEMENTED("S5FS: s5fs_readdir");
-        return -1;
+    KASSERT(vnode != NULL && d != NULL);
+    KASSERT(vnode->vn_ops->mkdir != NULL);
+
+    /* If the end of the file as been reached, 0 will be returned */
+    if(offset == vnode->vn_len) {
+        return 0;
+    }
+
+    kmutex_lock(&vnode->vn_mutex);
+
+    s5_dirent_t s5d;
+
+    int read_bytes = s5_read_file(vnode, offset, (char*) &s5d, sizeof(s5_dirent_t));
+
+    KASSERT(read_bytes <= (int)sizeof(s5_dirent_t));
+
+    /* copy the data into the given dirent */
+    if(read_bytes == sizeof(s5_dirent_t)) {
+        d->d_ino = s5d.s5d_inode;
+        d->d_off = offset + sizeof(s5_dirent_t);
+        strcpy(d->d_name, s5d.s5d_name);
+    } else {
+        dbg(DBG_S5FS, "error read dirent\n");
+    }
+
+    kmutex_unlock(&vnode->vn_mutex);
+    return read_bytes;
 }
 
 
@@ -779,8 +805,27 @@ s5fs_readdir(vnode_t *vnode, off_t offset, struct dirent *d)
 static int
 s5fs_stat(vnode_t *vnode, struct stat *ss)
 {
-        NOT_YET_IMPLEMENTED("S5FS: s5fs_stat");
-        return -1;
+    KASSERT(vnode != NULL && ss != NULL);
+    kmutex_lock(&vnode->vn_mutex);
+
+    int blocksize = s5_inode_blocks(vnode);
+
+    if(blocksize < 0) {
+        dbg(DBG_S5FS, "error getting block size\n");
+        return blocksize;
+    }
+
+    s5_inode_t *inode = VNODE_TO_S5INODE(vnode);
+    KASSERT(inode != NULL);
+
+    ss->st_mode = vnode->vn_mode;
+    ss->st_ino = inode->s5_number;
+    ss->st_nlink = inode->s5_linkcount;
+    ss->st_size = vnode->vn_len;
+    ss->st_blksize = BLOCK_SIZE;
+    ss->st_blocks = blocksize;
+    kmutex_unlock(&vnode->vn_mutex);
+    return 0;
 }
 
 
@@ -793,8 +838,23 @@ s5fs_stat(vnode_t *vnode, struct stat *ss)
 static int
 s5fs_fillpage(vnode_t *vnode, off_t offset, void *pagebuf)
 {
-        NOT_YET_IMPLEMENTED("S5FS: s5fs_fillpage");
-        return -1;
+    KASSERT(vnode != NULL && pagebuf != NULL);
+
+    int blocknum = s5_seek_to_block(vnode, offset, 0);
+
+    if(blocknum == -EFBIG || blocknum == -ENOSPC){
+        return blocknum;
+    }
+
+    KASSERT(blocknum >= 0);
+
+    if(blocknum == 0) {
+        bytedev_t *bd = bytedev_lookup(MEM_ZERO_DEVID);
+        return bd->cd_ops->read(bd, 0, pagebuf, S5_BLOCK_SIZE);
+    } else {
+        blockdev_t *bd = ((s5fs_t*) vnode->vn_fs->fs_i)->s5f_bdev;
+        return bd->bd_ops->read_block(bd, (char*) pagebuf, blocknum, 1);
+    }
 }
 
 
@@ -815,8 +875,17 @@ s5fs_fillpage(vnode_t *vnode, off_t offset, void *pagebuf)
 static int
 s5fs_dirtypage(vnode_t *vnode, off_t offset)
 {
-        NOT_YET_IMPLEMENTED("S5FS: s5fs_dirtypage");
-        return -1;
+    KASSERT(vnode != NULL);
+    int blocknum = s5_seek_to_block(vnode, offset, 0);
+    if(blocknum == -EFBIG || blocknum == -ENOSPC){
+        return blocknum;
+    }
+
+    if(blocknum == 0) {
+        return s5_seek_to_block(vnode, offset, 1);
+    } else {
+        return 0;
+    }
 }
 
 /*
@@ -825,8 +894,18 @@ s5fs_dirtypage(vnode_t *vnode, off_t offset)
 static int
 s5fs_cleanpage(vnode_t *vnode, off_t offset, void *pagebuf)
 {
-        NOT_YET_IMPLEMENTED("S5FS: s5fs_cleanpage");
-        return -1;
+    KASSERT(vnode != NULL && pagebuf != NULL);
+
+    int blocknum = s5_seek_to_block(vnode, offset, 0);
+
+    if(blocknum == -EFBIG || blocknum == -ENOSPC){
+        return blocknum;
+    }
+
+    KASSERT(blocknum > 0);
+
+    blockdev_t *bd = ((s5fs_t*) vnode->vn_fs->fs_i)->s5f_bdev;
+    return bd->bd_ops->write_block(bd, (char*) pagebuf, blocknum, 1);
 }
 
 /* Diagnostic/Utility: */
