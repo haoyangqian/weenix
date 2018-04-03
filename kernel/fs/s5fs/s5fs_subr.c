@@ -64,8 +64,101 @@ static int s5_alloc_block(s5fs_t *);
 int
 s5_seek_to_block(vnode_t *vnode, off_t seekptr, int alloc)
 {
-        NOT_YET_IMPLEMENTED("S5FS: s5_seek_to_block");
-        return -1;
+    KASSERT(vnode != NULL);
+    uint32_t block_index = S5_DATA_BLOCK(seekptr);
+
+    // if the block index is beyond the maximum limit
+    if(block_index >= S5_MAX_FILE_BLOCKS) {
+        return -EFBIG;
+    }
+
+    if(seekptr > vnode->vn_len && !alloc) {
+        return 0;
+    }
+
+    s5_inode_t *inode = VNODE_TO_S5INODE(vnode);
+
+    uint32_t seek_block_num;
+
+    /* if the block that we are seeking should be an indirect block */
+    if(block_index >= S5_NDIRECT_BLOCKS) {
+        pframe_t *pageframe;
+        mmobj_t *mmo = S5FS_TO_VMOBJ(VNODE_TO_S5FS(vnode));
+
+        /* if we have no indirect block */
+        if(inode->s5_indirect_block == 0) {
+
+            if(!alloc) return 0;
+
+            // if alloc is true, we should allocate a new indirect block
+            static int zero_array[BLOCK_SIZE] = {};
+
+            /* first, get an indirect block */
+            int indirect_block = s5_alloc_block(VNODE_TO_S5FS(vnode));
+            if(indirect_block < 0) {
+                dbg(DBG_S5FS, "unable to alloc an indirect block.\n");
+            }
+
+            /* then, zero it */
+            int get_res = pframe_get(mmo, inode->s5_indirect_block, &pageframe);
+            if(get_res < 0) return get_res;
+
+            memcpy(pageframe->pf_addr, zero_array, BLOCK_SIZE);
+
+            int dirty_res = pframe_dirty(pageframe);
+            if(dirty_res < 0) return dirty_res;
+
+            /* finally, set the inode */
+            inode->s5_indirect_block = indirect_block;
+            s5_dirty_inode(VNODE_TO_S5FS(vnode), inode);
+        }
+
+        // now we have the indirect block, so get the pframe object of it
+        if(pframe_get(mmo, inode->s5_indirect_block, &pageframe) < 0) {
+            panic("failed to get the pframe.\n");
+        }
+
+        // get the block num that we are seeking
+        seek_block_num = ((uint32_t*) pageframe->pf_addr)[block_index - S5_NDIRECT_BLOCKS];
+
+        // when found a sparse block and want to alloc it
+        if(seek_block_num == 0 && alloc) {
+            pframe_pin(pageframe);
+            int block_num = s5_alloc_block(VNODE_TO_S5FS(vnode));
+            pframe_unpin(pageframe);
+
+            if(block_num < 0){
+                dbg(DBG_S5FS, "unable to alloc a sparse block.\n");
+                return block_num;
+            }
+
+            seek_block_num = block_num;
+            // set the pageframe to the new block_num
+            ((uint32_t *) pageframe->pf_addr)[block_index - S5_NDIRECT_BLOCKS] = seek_block_num;
+
+            // mark the pframe as dirty
+            int dirty_res = pframe_dirty(pageframe);
+
+            if(dirty_res < 0) return dirty_res;
+        }
+    } else {
+        // if the block we are seeking is not indirect block
+        seek_block_num = inode->s5_direct_blocks[block_index];
+
+        // when found a sparse block and want to alloc it
+        if(seek_block_num == 0 && alloc) {
+            int block_num = s5_alloc_block(VNODE_TO_S5FS(vnode));
+            if(block_num < 0){
+                dbg(DBG_S5FS, "unable to alloc a sparse block.\n");
+                return block_num;
+            }
+
+            seek_block_num = block_num;
+            inode->s5_direct_blocks[block_index] = seek_block_num;
+            s5_dirty_inode(VNODE_TO_S5FS(vnode), inode);
+        }
+    }
+    return seek_block_num;
 }
 
 
@@ -116,8 +209,58 @@ unlock_s5(s5fs_t *fs)
 int
 s5_write_file(vnode_t *vnode, off_t seek, const char *bytes, size_t len)
 {
-        NOT_YET_IMPLEMENTED("S5FS: s5_write_file");
-        return -1;
+    KASSERT(vnode != NULL && bytes != NULL);
+
+    if(seek < 0) return -EINVAL;
+
+    if(seek + len >= S5_MAX_FILE_BLOCKS) {
+        len = S5_MAX_FILE_BLOCKS - seek - 1;
+    }
+
+    off_t pos = 0;
+    off_t end_pos = seek + len; 
+    int get_res = 0;
+    int write_size;
+    int err = 0;
+    mmobj_t *mmo = &vnode->vn_mmobj;
+    pframe_t *pageframe;
+
+    while(pos < (off_t)len) {
+        /* within a block, get the block index and offset */
+        int block_index = S5_DATA_BLOCK(seek);
+        off_t offset = S5_DATA_OFFSET(seek);
+
+        get_res = pframe_get(mmo, block_index, &pageframe);
+        if(get_res < 0) {
+            err = get_res;
+            break;
+        }
+
+        write_size = MIN((off_t)PAGE_SIZE - offset, end_pos - seek);
+
+        KASSERT(write_size >= 0);
+
+        memcpy((char*) pageframe->pf_addr + offset, (void *) (bytes + pos), write_size);
+
+        int dirty_res = pframe_dirty(pageframe);
+        if(dirty_res < 0) {
+            err = dirty_res;
+            break;
+        }
+
+        seek += write_size;
+        pos += write_size;
+    }
+
+    /* if we need to extend the file. */
+    if(seek > vnode->vn_len) {
+        s5_inode_t *inode = VNODE_TO_S5INODE(vnode);
+        vnode->vn_len = seek;
+        inode->s5_size = vnode->vn_len;
+        s5_dirty_inode(VNODE_TO_S5FS(vnode), inode);
+    }
+
+    return err? err : pos;
 }
 
 /*
@@ -143,8 +286,41 @@ s5_write_file(vnode_t *vnode, off_t seek, const char *bytes, size_t len)
 int
 s5_read_file(struct vnode *vnode, off_t seek, char *dest, size_t len)
 {
-        NOT_YET_IMPLEMENTED("S5FS: s5_read_file");
-        return -1;
+    KASSERT(vnode != NULL && dest != NULL);
+
+    if(seek < 0) return -EINVAL;
+    if(seek >= vnode->vn_len) return 0;
+
+    off_t end_pos = MIN(seek + (off_t)len, vnode->vn_len);
+    len = end_pos - seek;
+    off_t pos = 0;
+    int get_res = 0;
+    int read_size;
+    int err = 0;
+    mmobj_t *mmo = &vnode->vn_mmobj;
+    pframe_t *pageframe;
+
+    while(pos < (off_t)len) {
+        /* within a block, get the block index and offset */
+        int block_index = S5_DATA_BLOCK(seek);
+        off_t offset = S5_DATA_OFFSET(seek);
+
+        get_res = pframe_get(mmo, block_index, &pageframe);
+        if(get_res < 0) {
+            err = get_res;
+            break;
+        }
+
+        read_size = MIN((off_t)PAGE_SIZE - offset, end_pos - seek);
+
+        KASSERT(read_size > 0);
+
+        memcpy((void *) (dest + pos), (char*) pageframe->pf_addr + offset, read_size);
+
+        pos += read_size;
+        seek += read_size;
+    }
+    return err ? err : pos;
 }
 
 /*
