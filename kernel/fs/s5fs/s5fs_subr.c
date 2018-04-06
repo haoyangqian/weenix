@@ -40,7 +40,7 @@
                         "to a block device");                        \
         } while (0)
 
-
+#define NDIRENTS 5
 static void s5_free_block(s5fs_t *fs, int block);
 static int s5_alloc_block(s5fs_t *);
 
@@ -343,8 +343,44 @@ s5_read_file(struct vnode *vnode, off_t seek, char *dest, size_t len)
 static int
 s5_alloc_block(s5fs_t *fs)
 {
-        NOT_YET_IMPLEMENTED("S5FS: s5_alloc_block");
-        return -1;
+    s5_super_t *s = fs->s5f_super;
+
+    lock_s5(fs);
+
+    KASSERT(S5_NBLKS_PER_FNODE > s->s5s_nfree);
+
+    int free_block_num;
+
+    /* if there is no free block in freelist */
+    if(s->s5s_nfree == 0) {
+        // get the last block
+        free_block_num = s->s5s_free_blocks[S5_NBLKS_PER_FNODE - 1];
+
+        if(free_block_num == -1) {
+            unlock_s5(fs);
+            return -ENOSPC;
+        }
+
+        /* get the pframe of the last block */
+        pframe_t *new_free_blocks;
+        KASSERT(fs->s5f_bdev);
+        int get_res = pframe_get(&fs->s5f_bdev->bd_mmobj, free_block_num, &new_free_blocks);
+        if(get_res < 0) {
+            unlock_s5(fs);
+            return get_res;
+        }
+
+        memcpy((void*) s->s5s_free_blocks, new_free_blocks->pf_addr, S5_NBLKS_PER_FNODE*sizeof(int));
+        s->s5s_nfree = S5_NBLKS_PER_FNODE - 1;
+    } else {
+        free_block_num = s->s5s_free_blocks[--s->s5s_nfree];
+    }
+
+    s5_dirty_super(fs);
+
+    unlock_s5(fs);
+
+    return free_block_num;
 }
 
 
@@ -541,8 +577,27 @@ s5_free_inode(vnode_t *vnode)
 int
 s5_find_dirent(vnode_t *vnode, const char *name, size_t namelen)
 {
-        NOT_YET_IMPLEMENTED("S5FS: s5_find_dirent");
-        return -1;
+    KASSERT(vnode != NULL && name != NULL);
+
+    off_t seek = 0;
+    s5_dirent_t dirents[NDIRENTS]; // read 5 dirents at one time to speed up
+
+    while(seek < vnode->vn_len) {
+        int read_res = s5_read_file(vnode, seek, (char*) dirents, NDIRENTS * sizeof(s5_dirent_t));
+
+        if(read_res < 0) {
+            return read_res;
+        }
+
+        uint32_t i;
+        for(i = 0;i < (read_res / sizeof(s5_dirent_t));++i) {
+            if(name_match(dirents[i].s5d_name, name, namelen)) {
+                return dirents[i].s5d_inode;
+            }
+        }
+        seek += read_res;
+    }
+    return -ENOENT;
 }
 
 /*
@@ -568,8 +623,70 @@ s5_find_dirent(vnode_t *vnode, const char *name, size_t namelen)
 int
 s5_remove_dirent(vnode_t *vnode, const char *name, size_t namelen)
 {
-        NOT_YET_IMPLEMENTED("S5FS: s5_remove_dirent");
-        return -1;
+    KASSERT(vnode != NULL && vnode->vn_ops->mkdir != NULL);
+
+    off_t seek = 0;
+    s5_dirent_t dirents[NDIRENTS]; // read 5 dirents at one time to speed up
+
+    off_t offset = -1;
+    int ino = -1;
+    while(seek < vnode->vn_len) {
+        int read_res = s5_read_file(vnode, seek, (char*) dirents, NDIRENTS * sizeof(s5_dirent_t));
+
+        if(read_res < 0) {
+            return read_res;
+        }
+
+        uint32_t i;
+        for(i = 0;i < (read_res / sizeof(s5_dirent_t));++i) {
+            if(name_match(dirents[i].s5d_name, name, namelen)) {
+                offset = seek + i *  sizeof(s5_dirent_t);
+                ino = dirents[i].s5d_inode;
+                break;
+            }
+        }
+        seek += read_res;
+    }
+
+    if(offset == -1) {
+        return -ENOENT;
+    }
+
+    /* if the dirent to remove is not the last dirent, we need to
+     * copy the last dirent into its place */
+    if((unsigned) vnode->vn_len > offset + sizeof(s5_dirent_t)){
+        s5_dirent_t to_move;
+
+        int read_res = s5_read_file(vnode, vnode->vn_len - sizeof(s5_dirent_t), 
+                                    (char*) &to_move, sizeof(s5_dirent_t));
+
+        if(read_res < 0) return read_res;
+
+        int write_res = s5_write_file(vnode, offset, (char*) &to_move, sizeof(s5_dirent_t));
+
+        if(write_res < 0) return write_res;
+    }
+
+    s5fs_t *fs = VNODE_TO_S5FS(vnode);
+
+    s5_inode_t *dir_inode = VNODE_TO_S5INODE(vnode);
+
+    /* decrease the length of the dir, and mark it as dirty */
+    vnode->vn_len -= sizeof(s5_dirent_t);
+    dir_inode->s5_size -= sizeof(s5_dirent_t);
+    s5_dirty_inode(fs, dir_inode);
+
+    /* decrement the linkcount on the unlinked file */
+    vnode_t *deleted_vnode = vget(fs->s5f_fs, ino);
+    s5_inode_t *deleted_inode = VNODE_TO_S5INODE(deleted_vnode);
+
+    deleted_inode->s5_linkcount--;
+
+    s5_dirty_inode(fs, deleted_inode);
+
+    vput(deleted_vnode);
+
+    return 0;
 }
 
 /*

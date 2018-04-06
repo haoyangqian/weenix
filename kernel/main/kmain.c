@@ -47,7 +47,6 @@
 #include "test/s5fs_test.h"
 #include "test/proc_test.h"
 #include "test/driver_test.h"
-//#include "test/vfstest/vfstest.h"
 
 GDB_DEFINE_HOOK(boot)
 GDB_DEFINE_HOOK(initialized)
@@ -320,7 +319,7 @@ initproc_run(int arg1, void *arg2)
 {
     //run_proc_test();
     //run_driver_test();
-    vfstest_main(1, NULL);
+    //vfstest_main(1, NULL);
     return NULL;
 }
 
