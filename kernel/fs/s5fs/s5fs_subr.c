@@ -703,8 +703,37 @@ s5_remove_dirent(vnode_t *vnode, const char *name, size_t namelen)
 int
 s5_link(vnode_t *parent, vnode_t *child, const char *name, size_t namelen)
 {
-        NOT_YET_IMPLEMENTED("S5FS: s5_link");
-        return -1;
+    KASSERT(parent != NULL && parent->vn_ops->mkdir != NULL);
+    KASSERT(child != NULL);
+
+    if(s5_find_dirent(parent, name, namelen) != -ENOENT) {
+        dbg(DBG_S5FS, "the name is already exist.\n");
+        return -EEXIST;
+    }
+
+    s5fs_t *fs = VNODE_TO_S5FS(parent);
+
+    s5_inode_t *child_inode = VNODE_TO_S5INODE(child);
+    s5_inode_t *parent_inode = VNODE_TO_S5INODE(parent);
+    int ino = child_inode->s5_number;
+
+    s5_dirent_t new_dirent;
+    memcpy(new_dirent.s5d_name, name, namelen);
+    new_dirent.s5d_name[namelen] = '\0';
+    new_dirent.s5d_inode = ino;
+
+    int write_res = s5_write_file(parent, parent->vn_len, (char*) &new_dirent, sizeof(new_dirent));
+    if(write_res < 0)  return write_res;
+
+    s5_dirty_inode(fs, parent_inode);
+
+    /* increment the linkcount */
+    if(parent != child) {
+        child_inode->s5_linkcount++;
+        s5_dirty_inode(fs, child_inode);
+    }
+
+    return 0;
 }
 
 /*
@@ -719,7 +748,34 @@ s5_link(vnode_t *parent, vnode_t *child, const char *name, size_t namelen)
 int
 s5_inode_blocks(vnode_t *vnode)
 {
-        NOT_YET_IMPLEMENTED("S5FS: s5_inode_blocks");
-        return -1;
+    s5_inode_t *inode = VNODE_TO_S5INODE(vnode);
+
+    int alloc_blocks = 0;
+
+    int i;
+    for(i = 0;i < S5_NDIRECT_BLOCKS;++i) {
+        if(inode->s5_direct_blocks[i] != 0) {
+            alloc_blocks++;
+        }
+    }
+
+    /* if we have indirect blocks */
+    if(inode->s5_indirect_block != 0) {
+        alloc_blocks++; // include the indirect block
+
+        pframe_t *pageframe;
+        mmobj_t *mmobj = S5FS_TO_VMOBJ(VNODE_TO_S5FS(vnode));
+        int get_res = pframe_get(mmobj, inode->s5_indirect_block, &pageframe);
+
+        if(get_res < 0) return get_res;
+
+        int j;
+        for(j = 0;j < S5_NDIRECT_BLOCKS;++j) {
+            if(((int*)pageframe->pf_addr)[j] != 0){
+                alloc_blocks++;
+            }
+        }
+    }
+    return alloc_blocks;
 }
 
