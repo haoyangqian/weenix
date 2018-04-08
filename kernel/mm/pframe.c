@@ -298,8 +298,34 @@ pframe_fill(pframe_t *pf)
 int
 pframe_get(struct mmobj *o, uint32_t pagenum, pframe_t **result)
 {
-        NOT_YET_IMPLEMENTED("S5FS: pframe_get");
-        return 0;
+    pframe_t *pframe = pframe_get_resident(o, pagenum);
+
+    /* if the page is not resident in memory*/
+    if(pframe == NULL) {
+        pframe = pframe_alloc(o, pagenum);
+
+        if(pframe == NULL) {
+            return -ENOMEM;
+        }
+
+        int fill_res = pframe_fill(pframe);
+        if(fill_res < 0) {
+            pframe_free(pframe);
+            return fill_res;
+        }
+
+        if(pageoutd_needed()) {
+            pageoutd_wakeup();
+        }
+    } else {
+        /* if the pframe is busy, wait on */
+        while(pframe_is_busy(pframe)) {
+            sched_sleep_on(&pframe->pf_waitq);
+        }
+    }
+    *result = pframe;
+    KASSERT(!pframe_is_busy(*result) && "trying to return a busy pframe.");
+    return 0;
 }
 
 int
@@ -358,7 +384,19 @@ pframe_migrate(pframe_t *pf, mmobj_t *dest)
 void
 pframe_pin(pframe_t *pf)
 {
-        NOT_YET_IMPLEMENTED("S5FS: pframe_pin");
+    KASSERT(pf != NULL);
+    KASSERT(!pframe_is_free(pf) && "trying to pin a free page\n");
+
+    if(!pframe_is_pinned(pf)) {
+        /* move it from alloc list to pinned list */
+        list_remove(&pf->pf_link);
+        list_insert_head(&pinned_list, &pf->pf_link);
+
+        nallocated--;
+        npinned++;
+    }
+
+    pf->pf_pincount++;
 }
 
 /*
@@ -374,7 +412,15 @@ pframe_pin(pframe_t *pf)
 void
 pframe_unpin(pframe_t *pf)
 {
-        NOT_YET_IMPLEMENTED("S5FS: pframe_unpin");
+    KASSERT(pframe_is_pinned(pf));
+
+    if(--pf->pf_pincount == 0) {
+        list_remove(&pf_link);
+        list_insert_head(&alloc_list, &pf->pf_link);
+
+        nallocated++;
+        npinned--;
+    }
 }
 
 /*
