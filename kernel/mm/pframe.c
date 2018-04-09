@@ -415,7 +415,7 @@ pframe_unpin(pframe_t *pf)
     KASSERT(pframe_is_pinned(pf));
 
     if(--pf->pf_pincount == 0) {
-        list_remove(&pf_link);
+        list_remove(&pf->pf_link);
         list_insert_head(&alloc_list, &pf->pf_link);
 
         nallocated++;

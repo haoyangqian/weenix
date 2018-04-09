@@ -213,8 +213,8 @@ s5_write_file(vnode_t *vnode, off_t seek, const char *bytes, size_t len)
 
     if(seek < 0) return -EINVAL;
 
-    if(seek + len >= S5_MAX_FILE_BLOCKS) {
-        len = S5_MAX_FILE_BLOCKS - seek - 1;
+    if(seek + len >= S5_MAX_FILE_SIZE) {
+        len = S5_MAX_FILE_SIZE - seek - 1;
     }
 
     off_t pos = 0;
@@ -240,7 +240,7 @@ s5_write_file(vnode_t *vnode, off_t seek, const char *bytes, size_t len)
 
         KASSERT(write_size >= 0);
 
-        memcpy((char*) pageframe->pf_addr + offset, (void *) (bytes + pos), write_size);
+        memcpy((char*) (pageframe->pf_addr + offset), (void *) (bytes + pos), write_size);
 
         int dirty_res = pframe_dirty(pageframe);
         if(dirty_res < 0) {

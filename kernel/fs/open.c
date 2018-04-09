@@ -126,6 +126,8 @@ do_open(const char *filename, int oflags)
             return open_ret;
         }
         /* if it is a DIR */
+        KASSERT(file->f_vnode != NULL);
+
         if(file->f_vnode->vn_ops->mkdir != NULL) {
             if((oflags & O_WRONLY) || (oflags & O_RDWR)){
                 curproc->p_files[fd] = NULL;

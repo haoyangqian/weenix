@@ -21,7 +21,7 @@
 #define BUFSIZE 256
 #define BIG_BUFSIZE 2056
 
-#define S5_MAX_FILE_SIZE S5_BLOCK_SIZE * S5_MAX_FILE_BLOCKS
+//#define S5_MAX_FILE_SIZE S5_BLOCK_SIZE * S5_MAX_FILE_BLOCKS
 
 static void get_file_name(char* buf, size_t sz, int fileno)
 {

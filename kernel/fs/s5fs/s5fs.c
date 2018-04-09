@@ -440,7 +440,7 @@ s5fs_create(vnode_t *dir, const char *name, size_t namelen, vnode_t **result)
     /* alloc a new inode */
     int ino = s5_alloc_inode(fs, S5_TYPE_DATA, NULL);
 
-    if(ino <= 0) {
+    if(ino < 0) {
         dbg(DBG_S5FS, "unable to alloc a new inode.\n");
         kmutex_unlock(&dir->vn_mutex);
         return ino;
@@ -461,7 +461,7 @@ s5fs_create(vnode_t *dir, const char *name, size_t namelen, vnode_t **result)
         kmutex_unlock(&dir->vn_mutex);
         return link_res;
     }
-
+    
     /* the vnode refcount should be 1, and the linkcount on inode should be 2 */
     KASSERT(child->vn_refcount == 1);
     KASSERT(VNODE_TO_S5INODE(child)->s5_linkcount == 2);
@@ -657,7 +657,7 @@ s5fs_mkdir(vnode_t *dir, const char *name, size_t namelen)
 
     kmutex_lock(&child->vn_mutex);
 
-    /* link the child to the itself (as dot) */
+    /* link the child to the itself (as dot), note that linkcount doesn't increment */
     int link_res = s5_link(child, child, dot, 1);
     if(link_res < 0) {
         dbg(DBG_S5FS, "error link dot to itself\n");
@@ -667,7 +667,7 @@ s5fs_mkdir(vnode_t *dir, const char *name, size_t namelen)
         return link_res;
     }
 
-    /* link the dir to child (as dotdot) */
+    /* link the dir to child (as dotdot), the dir's linkcount should be incremented */
     link_res = s5_link(child, dir, dotdot, 2);
     if(link_res < 0) {
         dbg(DBG_S5FS, "error link dot to its dir\n");
@@ -677,7 +677,7 @@ s5fs_mkdir(vnode_t *dir, const char *name, size_t namelen)
         return link_res;
     }
 
-    /* link the child to the dir */
+    /* link the child to the dir, the child's linkcount should be incremented */
     link_res = s5_link(dir, child, name, namelen);
     if(link_res < 0) {
         dbg(DBG_S5FS, "error link child to its dir\n");
@@ -690,8 +690,8 @@ s5fs_mkdir(vnode_t *dir, const char *name, size_t namelen)
 
     vput(child);
     
-    KASSERT(child->vn_refcount == 0);
-    KASSERT(VNODE_TO_S5INODE(child)->s5_linkcount == 1);
+    KASSERT(child->vn_refcount - child->vn_nrespages == 0);
+    KASSERT(VNODE_TO_S5INODE(child)->s5_linkcount == 2);
     KASSERT(VNODE_TO_S5INODE(dir)->s5_linkcount == oldlinkcount + 1);
 
     kmutex_unlock(&child->vn_mutex);
