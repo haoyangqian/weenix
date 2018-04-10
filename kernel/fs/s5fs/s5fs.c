@@ -504,7 +504,7 @@ s5fs_mknod(vnode_t *dir, const char *name, size_t namelen, int mode, devid_t dev
         panic("wrong mode!\n");
     }
 
-    if(ino <= 0) {
+    if(ino < 0) {
         dbg(DBG_S5FS, "unable to alloc a new inode.\n");
         kmutex_unlock(&dir->vn_mutex);
         return ino;
@@ -552,7 +552,7 @@ s5fs_lookup(vnode_t *base, const char *name, size_t namelen, vnode_t **result)
 
     /* get the ino */
     int ino = s5_find_dirent(base, name, namelen);
-    if(ino <= 0) {
+    if(ino < 0) {
         dbg(DBG_S5FS, "unable to find the inode in dir.\n");
         kmutex_unlock(&base->vn_mutex);
         return ino;
@@ -646,7 +646,7 @@ s5fs_mkdir(vnode_t *dir, const char *name, size_t namelen)
     /* alloc a new inode */
     int ino = s5_alloc_inode(fs, S5_TYPE_DIR, NULL);
 
-    if(ino <= 0) {
+    if(ino < 0) {
         dbg(DBG_S5FS, "unable to alloc a new inode.\n");
         kmutex_unlock(&dir->vn_mutex);
         return ino;
@@ -722,7 +722,7 @@ s5fs_rmdir(vnode_t *parent, const char *name, size_t namelen)
 
     /* get the ino */
     int ino = s5_find_dirent(parent, name, namelen);
-    if(ino <= 0) {
+    if(ino < 0) {
         dbg(DBG_S5FS, "unable to find the inode in dir.\n");
         kmutex_unlock(&parent->vn_mutex);
         return ino;

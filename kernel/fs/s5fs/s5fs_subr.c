@@ -97,10 +97,11 @@ s5_seek_to_block(vnode_t *vnode, off_t seekptr, int alloc)
             int indirect_block = s5_alloc_block(VNODE_TO_S5FS(vnode));
             if(indirect_block < 0) {
                 dbg(DBG_S5FS, "unable to alloc an indirect block.\n");
+                return indirect_block;
             }
 
             /* then, zero it */
-            int get_res = pframe_get(mmo, inode->s5_indirect_block, &pageframe);
+            int get_res = pframe_get(mmo, indirect_block, &pageframe);
             if(get_res < 0) return get_res;
 
             memcpy(pageframe->pf_addr, zero_array, BLOCK_SIZE);
@@ -213,8 +214,10 @@ s5_write_file(vnode_t *vnode, off_t seek, const char *bytes, size_t len)
 
     if(seek < 0) return -EINVAL;
 
+    if((size_t)seek >= S5_MAX_FILE_SIZE) return -EFBIG;
+
     if(seek + len >= S5_MAX_FILE_SIZE) {
-        len = S5_MAX_FILE_SIZE - seek - 1;
+        len = S5_MAX_FILE_SIZE - seek;
     }
 
     off_t pos = 0;
@@ -222,7 +225,6 @@ s5_write_file(vnode_t *vnode, off_t seek, const char *bytes, size_t len)
     int get_res = 0;
     int write_size;
     int err = 0;
-    mmobj_t *mmo = &vnode->vn_mmobj;
     pframe_t *pageframe;
 
     while(pos < (off_t)len) {
@@ -230,7 +232,7 @@ s5_write_file(vnode_t *vnode, off_t seek, const char *bytes, size_t len)
         int block_index = S5_DATA_BLOCK(seek);
         off_t offset = S5_DATA_OFFSET(seek);
 
-        get_res = pframe_get(mmo, block_index, &pageframe);
+        get_res = pframe_get(&vnode->vn_mmobj, block_index, &pageframe);
         if(get_res < 0) {
             err = get_res;
             break;
@@ -240,7 +242,9 @@ s5_write_file(vnode_t *vnode, off_t seek, const char *bytes, size_t len)
 
         KASSERT(write_size >= 0);
 
-        memcpy((char*) (pageframe->pf_addr + offset), (void *) (bytes + pos), write_size);
+        //static int zero_array[BLOCK_SIZE] = {};
+        //if(offset > 0) memcpy((char*) pageframe->pf_addr, zero_array, offset);
+        memcpy((char*) pageframe->pf_addr + offset, (void *) (bytes + pos), write_size);
 
         int dirty_res = pframe_dirty(pageframe);
         if(dirty_res < 0) {
@@ -320,7 +324,7 @@ s5_read_file(struct vnode *vnode, off_t seek, char *dest, size_t len)
         pos += read_size;
         seek += read_size;
     }
-    return err ? err : pos;
+    return err != 0? err : pos;
 }
 
 /*

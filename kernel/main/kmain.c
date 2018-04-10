@@ -319,8 +319,8 @@ initproc_run(int arg1, void *arg2)
 {
     //run_proc_test();
     //run_driver_test();
-    //vfstest_main(1, NULL);
-    s5fs_test_main();
+    vfstest_main(1, NULL);
+    //s5fs_test_main();
     return NULL;
 }
 

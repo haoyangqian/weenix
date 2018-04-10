@@ -68,7 +68,8 @@ static int is_first_n_bytes_zero(int fd, int n) {
                 // Check everything that we read is indeed 0
                 for (int i = 0; i < amt_to_read; ++i) {
                         if (buf[i] != 0) {
-                                dbg(DBG_TESTFAIL, "buf contains char %d\n", (int)buf[i]);
+                                dbg(DBG_TESTFAIL, "buf contains char %d total_read: %d\n", 
+                                        (int)buf[i], total_read);
                                 return 0;
                         }
                 }
