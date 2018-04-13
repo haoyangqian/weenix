@@ -58,8 +58,14 @@ vmarea_free(vmarea_t *vma)
 vmmap_t *
 vmmap_create(void)
 {
-        NOT_YET_IMPLEMENTED("VM: vmmap_create");
-        return NULL;
+        vmmap_t *newvmm = (vmmap_t *) slab_obj_alloc(vmmap_allocator);
+
+        if(newvmm) {
+            list_init(&newvmm->vmm_list);
+            newvmm->vmm_proc = NULL;
+        }
+
+        return newvmm;
 }
 
 /* Removes all vmareas from the address space and frees the
@@ -67,7 +73,23 @@ vmmap_create(void)
 void
 vmmap_destroy(vmmap_t *map)
 {
-        NOT_YET_IMPLEMENTED("VM: vmmap_destroy");
+        vmarea_t *curr;
+        list_iterate_begin(&map->vmm_list, curr, vmarea_t, vma_plink){
+            if(curr->vma_obj != NULL) {
+                curr->vma_obj->mmo_ops->put(curr->vma_obj);
+            }
+
+            list_remove(curr->vma_plink);
+            
+            if(list_link_islinked(curr->vma_olink)) {
+                list_remove(curr->vma_olink);
+            }
+
+            vmarea_free(curr);
+        }list_iterate_end();
+
+        // free the vmmap
+        slab_obj_free(vmmap_allocator, map);
 }
 
 /* Add a vmarea to an address space. Assumes (i.e. asserts to some extent)
@@ -76,8 +98,29 @@ vmmap_destroy(vmmap_t *map)
  * area. */
 void
 vmmap_insert(vmmap_t *map, vmarea_t *newvma)
-{
-        NOT_YET_IMPLEMENTED("VM: vmmap_insert");
+{   
+
+        KASSERT(map != NULL);
+        KASSERT(newvma != NULL);
+
+        newvma->vma_vmmap = map;
+
+        /* insert the newvma as sorted */
+        list_t *list = map->vmm_list;
+        list_link_t *link = list->l_next;
+        for(link; link != list; link = link->l_next){
+            vmarea_t *curr = list_item(link, vmarea_t, vma_plink);
+
+            if(curr->vma_start >= newvma->vma_start) {
+                /* make sure no overlap */
+                KASSERT(newvma->vma_end <= curr->vma_start);
+                list_insert_before(link, &newvma->vma_plink);
+                return;
+            }
+        }
+
+        /* if we got here, entail the newvma */
+        list_insert_tail(list, &newvma->vma_plink);
 }
 
 /* Find a contiguous range of free virtual pages of length npages in

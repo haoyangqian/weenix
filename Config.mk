@@ -13,7 +13,7 @@
      DRIVERS=1
          VFS=1
         S5FS=1
-          VM=0
+          VM=1
      DYNAMIC=0
 # When you finish S5FS, first enable "VM"; once this is working, then enable
 # "DYNAMIC".
@@ -51,7 +51,7 @@
 # first, and make sure to make a copy of your working Weenix before you
 # go breaking it, which we promise you will happen.
 
-         SHADOWD=0 # shadow page cleanup
+         SHADOWD=1 # shadow page cleanup
         MOUNTING=0 # be able to mount multiple file systems
           GETCWD=0 # getcwd(3) syscall-like functionality
         UPREEMPT=0 # userland preemption
