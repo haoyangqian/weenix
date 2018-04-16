@@ -691,7 +691,7 @@ s5fs_mkdir(vnode_t *dir, const char *name, size_t namelen)
     vput(child);
     
     KASSERT(child->vn_refcount - child->vn_nrespages == 0);
-    KASSERT(VNODE_TO_S5INODE(child)->s5_linkcount == 2);
+    KASSERT(VNODE_TO_S5INODE(child)->s5_linkcount == 2); //?
     KASSERT(VNODE_TO_S5INODE(dir)->s5_linkcount == oldlinkcount + 1);
 
     kmutex_unlock(&child->vn_mutex);

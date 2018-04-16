@@ -79,10 +79,10 @@ vmmap_destroy(vmmap_t *map)
                 curr->vma_obj->mmo_ops->put(curr->vma_obj);
             }
 
-            list_remove(curr->vma_plink);
+            list_remove(&curr->vma_plink);
             
-            if(list_link_islinked(curr->vma_olink)) {
-                list_remove(curr->vma_olink);
+            if(list_link_is_linked(&curr->vma_olink)) {
+                list_remove(&curr->vma_olink);
             }
 
             vmarea_free(curr);
@@ -102,13 +102,13 @@ vmmap_insert(vmmap_t *map, vmarea_t *newvma)
 
         KASSERT(map != NULL);
         KASSERT(newvma != NULL);
-
+        KASSERT(newvma->vma_start < newvma->vma_end);
         newvma->vma_vmmap = map;
 
         /* insert the newvma as sorted */
-        list_t *list = map->vmm_list;
+        list_t *list = &map->vmm_list;
         list_link_t *link = list->l_next;
-        for(link; link != list; link = link->l_next){
+        for(link = list->l_next; link != list; link = link->l_next){
             vmarea_t *curr = list_item(link, vmarea_t, vma_plink);
 
             if(curr->vma_start >= newvma->vma_start) {
@@ -123,6 +123,47 @@ vmmap_insert(vmmap_t *map, vmarea_t *newvma)
         list_insert_tail(list, &newvma->vma_plink);
 }
 
+/*   Check if we can directly find a contiguous range in vmm boundary.
+ *   If so, no need to iterate vmarea list.
+ */
+int 
+check_boundary(vmmap_t *map, uint32_t npages, int dir) {
+    KASSERT(map != NULL);
+    KASSERT(dir == VMMAP_DIR_LOHI || dir == VMMAP_DIR_HILO);
+
+    if(dir == VMMAP_DIR_HILO) {
+        if(list_empty(&map->vmm_list)) {
+            return MAX_PAGENUM - npages;
+        }
+
+        list_t *list = &map->vmm_list;
+        list_link_t *link = list->l_prev;
+
+        vmarea_t *curr = list_item(link, vmarea_t, vma_plink);
+
+        if(MAX_PAGENUM - curr->vma_end >= npages) {
+            return MAX_PAGENUM - npages;
+        }
+
+    } else {
+        if(list_empty(&map->vmm_list)) {
+            return MIN_PAGENUM;
+        }
+
+        list_t *list = &map->vmm_list;
+        list_link_t *link = list->l_next;
+
+        vmarea_t *curr = list_item(link, vmarea_t, vma_plink);
+
+        if(curr->vma_start - MIN_PAGENUM >= npages) {
+            return MIN_PAGENUM;
+        }
+    }
+
+    return -1;
+}
+
+
 /* Find a contiguous range of free virtual pages of length npages in
  * the given address space. Returns starting vfn for the range,
  * without altering the map. Returns -1 if no such range exists.
@@ -133,8 +174,56 @@ vmmap_insert(vmmap_t *map, vmarea_t *newvma)
 int
 vmmap_find_range(vmmap_t *map, uint32_t npages, int dir)
 {
-        NOT_YET_IMPLEMENTED("VM: vmmap_find_range");
+    KASSERT(map != NULL);
+    KASSERT(dir == VMMAP_DIR_LOHI || dir == VMMAP_DIR_HILO);
+
+    if(npages > TOTAL_RANGE) {
+        dbg(DBG_VM, "npages should not be larger than TOTAL_RANGE.\n");
         return -1;
+    }
+
+    /* check the boundary*/
+    int check_ret = check_boundary(map, npages, dir);
+    if(check_ret != -1) {
+        return check_ret;
+    }
+
+    /* no contiguous space near boundary, so iterate the vmarea list. */
+    if(dir == VMMAP_DIR_HILO) {
+        list_t *list = &map->vmm_list;
+        list_link_t *link = list->l_prev;
+
+        vmarea_t *prev = NULL;
+
+        for(link = list->l_next; link != list; link = link->l_prev) {
+            vmarea_t *curr = list_item(link, vmarea_t, vma_plink);
+
+            if(prev != NULL && (prev->vma_start - curr->vma_end) >= npages) {
+                return prev->vma_start - npages;
+            }
+
+            prev = curr;
+        }
+
+    } else {
+        list_t *list = &map->vmm_list;
+        list_link_t *link = list->l_next;
+
+        vmarea_t *prev = NULL;
+
+        for(link = list->l_next; link != list; link = link->l_next){
+            vmarea_t *curr = list_item(link, vmarea_t, vma_plink);
+
+            if(prev != NULL && (curr->vma_start - prev->vma_end) >= npages) {
+                return prev->vma_end;
+            }
+
+            prev = curr;
+        }
+    }
+
+    /* no such contiguous space was found. */
+    return -1;
 }
 
 /* Find the vm_area that vfn lies in. Simply scan the address space
@@ -143,8 +232,22 @@ vmmap_find_range(vmmap_t *map, uint32_t npages, int dir)
 vmarea_t *
 vmmap_lookup(vmmap_t *map, uint32_t vfn)
 {
-        NOT_YET_IMPLEMENTED("VM: vmmap_lookup");
-        return NULL;
+    KASSERT(map != NULL);
+
+    if(vfn < MIN_PAGENUM || vfn >= MAX_PAGENUM) return NULL;
+
+    list_t *list = &map->vmm_list;
+    list_link_t *link = list->l_next;
+
+    for(link = list->l_next; link != list; link = link->l_next){
+        vmarea_t *curr = list_item(link, vmarea_t, vma_plink);
+
+        if(vfn >= curr->vma_start && vfn < curr->vma_end) {
+            return curr;
+        }
+    }
+
+    return NULL;
 }
 
 /* Allocates a new vmmap containing a new vmarea for each area in the
@@ -154,8 +257,36 @@ vmmap_lookup(vmmap_t *map, uint32_t vfn)
 vmmap_t *
 vmmap_clone(vmmap_t *map)
 {
-        NOT_YET_IMPLEMENTED("VM: vmmap_clone");
-        return NULL;
+    /* create a new map */
+    vmmap_t *newmap = vmmap_create();
+
+    if(newmap == NULL) return NULL;
+
+    vmarea_t *curr;
+    list_iterate_begin(&map->vmm_list, curr, vmarea_t, vma_plink){
+        vmarea_t *new_vmarea = vmarea_alloc();
+
+        if(new_vmarea == NULL) {
+            vmmap_destroy(newmap);
+            return NULL;
+        }
+
+        new_vmarea->vma_start = curr->vma_start;
+        new_vmarea->vma_end   = curr->vma_end;
+        new_vmarea->vma_off   = curr->vma_off;
+
+        new_vmarea->vma_prot  = curr->vma_prot;
+        new_vmarea->vma_flags = curr->vma_flags;
+
+        new_vmarea->vma_vmmap = newmap;
+        new_vmarea->vma_obj   = NULL;
+        list_link_init(&new_vmarea->vma_plink);
+        list_link_init(&new_vmarea->vma_olink);
+
+        list_insert_tail(&newmap->vmm_list, &new_vmarea->vma_plink);
+    }list_iterate_end();
+
+    return newmap; 
 }
 
 /* Insert a mapping into the map starting at lopage for npages pages.
@@ -187,8 +318,83 @@ int
 vmmap_map(vmmap_t *map, vnode_t *file, uint32_t lopage, uint32_t npages,
           int prot, int flags, off_t off, int dir, vmarea_t **new)
 {
-        NOT_YET_IMPLEMENTED("VM: vmmap_map");
-        return -1;
+        /* make sure all the input is valid */
+        KASSERT(map != NULL);
+        KASSERT(prot == PROT_NONE || prot == PROT_READ || prot == PROT_WRITE
+                || prot == PROT_EXEC || prot == (PROT_READ | PROT_WRITE)
+                || prot == (PROT_READ | PROT_EXEC)
+                || prot == (PROT_WRITE | PROT_EXEC)
+                || prot == (PROT_READ | PROT_WRITE | PROT_EXEC));
+
+        KASSERT((flags & MAP_TYPE) == MAP_SHARED || (flags & MAP_TYPE) == MAP_PRIVATE);
+        KASSERT(off % PAGE_SIZE == 0);
+
+        if(lopage == 0) {
+            KASSERT(dir == VMMAP_DIR_LOHI || dir == VMMAP_DIR_HILO);
+        }
+
+        vmarea_t *new_vma = vmarea_alloc();
+
+        if(new_vma == NULL) {
+            return -ENOMEM;
+        }
+
+        /* determine the start pagenum*/
+        int start_page = lopage;
+        if(lopage == 0) {
+            start_page = vmmap_find_range(map, npages, dir);
+            if(start_page < 0) {
+                vmarea_free(new_vma);
+                return -ENOMEM;
+            }
+        }
+
+        /* init the attributes of new_vma */
+        new_vma->vma_start = start_page;
+        new_vma->vma_end   = start_page + npages;
+        new_vma->vma_off   = ADDR_TO_PN(off);
+        new_vma->vma_prot  = prot;
+        new_vma->vma_flags = flags;
+        list_link_init(&new_vma->vma_plink);
+        list_link_init(&new_vma->vma_olink);
+
+        /* unmap the original mapping*/
+        int remove_res = vmmap_remove(map, start_page, npages);
+        if(remove_res < 0){
+            vmarea_free(new_vma);
+            return remove_res;
+        }
+
+        /* get the new mmobj */
+        mmobj_t *new_mmobj;
+        if(file != NULL) {
+            int mmap_res = file->vn_ops->mmap(file, vma, &new_mmobj);
+
+            if(mmap_res < 0) {
+                vmarea_free(vma);
+                return mmap_res;
+            }
+
+        } else {
+            new_mmobj = anon_create();
+            if(new_mmobj == NULL) {
+                vmarea_free(vma);
+                return -ENOMEM;
+            }
+        }
+
+        /* check the flag */
+        if(flags & MAP_PRIVATE) {
+            mmobj_t *shadow_obj = shadow_create();
+
+            if(shadow_obj == NULL) {
+                vmarea_free(vma);
+                return -ENOMEM;
+            }
+
+            shadow_obj->mmo_shadowed = new_mmobj;
+            new_mmobj->mmo_ops->ref(new_mmobj);
+        }
 }
 
 /*

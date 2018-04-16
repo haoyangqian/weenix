@@ -7,6 +7,12 @@
 #define VMMAP_DIR_LOHI 1
 #define VMMAP_DIR_HILO 2
 
+/* [MIN, MAX)*/
+#define MIN_PAGENUM ADDR_TO_PN(USER_MEM_LOW) /* inclusive */
+#define MAX_PAGENUM ADDR_TO_PN(USER_MEM_HIGH) /* exclusive */
+#define TOTAL_RANGE MAX_PAGENUM - MIN_PAGENUM
+
+
 struct mmobj;
 struct proc;
 struct vnode;
