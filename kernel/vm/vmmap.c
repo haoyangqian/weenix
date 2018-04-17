@@ -23,6 +23,7 @@
 #include "mm/mm.h"
 #include "mm/mman.h"
 #include "mm/mmobj.h"
+#include "mm/tlb.h"
 
 static slab_allocator_t *vmmap_allocator;
 static slab_allocator_t *vmarea_allocator;
@@ -68,6 +69,24 @@ vmmap_create(void)
         return newvmm;
 }
 
+
+/* Clean up the vmarea.
+ * Called by vmmap_destroy() and vmmap_remove() */
+static void 
+vmarea_cleanup(vmarea_t *vma) {
+    if(vma->vma_obj != NULL) {
+        vma->vma_obj->mmo_ops->put(vma->vma_obj);
+    }
+
+    list_remove(&vma->vma_plink);
+    
+    if(list_link_is_linked(&vma->vma_olink)) {
+        list_remove(&vma->vma_olink);
+    }
+
+    vmarea_free(vma);
+}
+
 /* Removes all vmareas from the address space and frees the
  * vmmap struct. */
 void
@@ -75,17 +94,7 @@ vmmap_destroy(vmmap_t *map)
 {
         vmarea_t *curr;
         list_iterate_begin(&map->vmm_list, curr, vmarea_t, vma_plink){
-            if(curr->vma_obj != NULL) {
-                curr->vma_obj->mmo_ops->put(curr->vma_obj);
-            }
-
-            list_remove(&curr->vma_plink);
-            
-            if(list_link_is_linked(&curr->vma_olink)) {
-                list_remove(&curr->vma_olink);
-            }
-
-            vmarea_free(curr);
+            vmarea_cleanup(curr);
         }list_iterate_end();
 
         // free the vmmap
@@ -367,18 +376,20 @@ vmmap_map(vmmap_t *map, vnode_t *file, uint32_t lopage, uint32_t npages,
 
         /* get the new mmobj */
         mmobj_t *new_mmobj;
+
+        /* check the file */
         if(file != NULL) {
-            int mmap_res = file->vn_ops->mmap(file, vma, &new_mmobj);
+            int mmap_res = file->vn_ops->mmap(file, new_vma, &new_mmobj);
 
             if(mmap_res < 0) {
-                vmarea_free(vma);
+                vmarea_free(new_vma);
                 return mmap_res;
             }
 
         } else {
             new_mmobj = anon_create();
             if(new_mmobj == NULL) {
-                vmarea_free(vma);
+                vmarea_free(new_vma);
                 return -ENOMEM;
             }
         }
@@ -388,13 +399,69 @@ vmmap_map(vmmap_t *map, vnode_t *file, uint32_t lopage, uint32_t npages,
             mmobj_t *shadow_obj = shadow_create();
 
             if(shadow_obj == NULL) {
-                vmarea_free(vma);
+                vmarea_free(new_vma);
                 return -ENOMEM;
             }
 
             shadow_obj->mmo_shadowed = new_mmobj;
             new_mmobj->mmo_ops->ref(new_mmobj);
+
+            mmobj_t *bottom_obj;
+
+            if(new_mmobj->mmo_shadowed != NULL) {
+                bottom_obj = new_mmobj->mmo_un.mmo_bottom_obj;
+            } else {
+                bottom_obj = new_mmobj;
+            }
+
+            shadow_obj->mmo_un.mmo_bottom_obj = bottom_obj;
+            bottom_obj->mmo_ops->ref(bottom_obj);
+
+            new_mmobj = shadow_obj;
         }
+
+        new_vma->vma_obj = new_mmobj;
+        new_mmobj->mmo_ops->ref(new_mmobj);
+
+        mmobj_t *final_bottom_obj = mmobj_bottom_obj(new_vma->vma_obj);
+        list_insert_tail(&final_bottom_obj->mmo_un.mmo_vmas, &new_vma->vma_olink);
+
+        vmmap_insert(map, new_vma);
+
+        /* If 'new' is non-NULL a pointer to the new vmarea_t should be stored in it */
+        if (new != NULL){
+            *new = new_vma;
+        }
+
+        return 0;
+}
+
+/* This should only be called in vmarea_remove() */
+static vmarea_t *vmarea_clone(vmarea_t *old_vma){
+    vmarea_t *new_vma = vmarea_alloc();
+
+    if (new_vma == NULL){
+        return NULL;
+    }
+
+    new_vma->vma_start = -1;
+    new_vma->vma_end = -1;
+    new_vma->vma_off = old_vma->vma_off;
+
+    new_vma->vma_prot = old_vma->vma_prot;
+    new_vma->vma_flags = old_vma->vma_flags;
+
+    new_vma->vma_obj = old_vma->vma_obj;
+
+    if (new_vma->vma_obj != NULL){
+        new_vma->vma_obj->mmo_ops->ref(new_vma->vma_obj);
+    }
+
+    list_link_init(&new_vma->vma_plink);
+    list_link_init(&new_vma->vma_olink);
+    list_insert_before(&old_vma->vma_olink, &new_vma->vma_olink);
+
+    return new_vma;
 }
 
 /*
@@ -429,8 +496,60 @@ vmmap_map(vmmap_t *map, vnode_t *file, uint32_t lopage, uint32_t npages,
 int
 vmmap_remove(vmmap_t *map, uint32_t lopage, uint32_t npages)
 {
-        NOT_YET_IMPLEMENTED("VM: vmmap_remove");
-        return -1;
+    KASSERT(map != NULL);
+    KASSERT(lopage >= MIN_PAGENUM);
+    KASSERT(npages < TOTAL_RANGE);
+
+    uint32_t unmap_start = lopage;
+    uint32_t unmap_end = MIN(lopage + npages, MAX_PAGENUM);
+
+
+    vmarea_t *curr;
+    list_iterate_begin(&map->vmm_list, curr, vmarea_t, vma_plink){
+        /* case 1, split to two vmarea */
+        if(curr->vma_start < unmap_start && curr->vma_end > unmap_end) {
+            vmarea_t *next_vma = vmarea_clone(curr);
+
+            if(next_vma == NULL) {
+                return -ENOMEM;
+            }
+
+            next_vma->vma_start = unmap_end;
+            next_vma->vma_end   = curr->vma_end;
+            next_vma->vma_off   = curr->vma_off + (unmap_end - curr->vma_start);
+
+            curr->vma_end       = unmap_start;
+
+            vmmap_insert(map, next_vma);
+        } 
+        /* case 2, cut off the second half of vmarea */
+        else if(curr->vma_start < unmap_start && curr->vma_end <= unmap_end) {
+            curr->vma_end = unmap_start;
+        }
+        /* case 3, cur off the first half of vmarea*/
+        else if(curr->vma_start >= unmap_start && curr->vma_end > unmap_end) {
+            curr->vma_start = unmap_end;
+            curr->vma_off += (unmap_end - curr->vma_start); 
+        }
+        /* case 4, just free the vmarea */
+        else if(curr->vma_start >= unmap_start && curr->vma_end <= unmap_end) {
+            vmarea_cleanup(curr);
+            //don't break
+        } else {
+            /* ***** [  ], could break*/
+            if(curr->vma_start >= unmap_end) break;
+
+            /* [  ] ******, should continue iteration */
+            KASSERT(curr->vma_end <= unmap_start);
+        }
+    }list_iterate_end();
+
+    /* flush the TLB and unmap pagetable */
+    tlb_flush_range((uint32_t) PN_TO_ADDR(lopage), npages);
+    pt_unmap_range(curproc->p_pagedir, (uint32_t) PN_TO_ADDR(lopage),
+            (uint32_t) PN_TO_ADDR(lopage + npages));
+    
+    return 0;
 }
 
 /*
@@ -440,8 +559,16 @@ vmmap_remove(vmmap_t *map, uint32_t lopage, uint32_t npages)
 int
 vmmap_is_range_empty(vmmap_t *map, uint32_t startvfn, uint32_t npages)
 {
-        NOT_YET_IMPLEMENTED("VM: vmmap_is_range_empty");
-        return 0;
+    KASSERT(map != NULL);
+    KASSERT(startvfn >= MIN_PAGENUM);
+    KASSERT(npages > 0);
+    vmarea_t *curr;
+    list_iterate_begin(&map->vmm_list, curr, vmarea_t, vma_plink){
+        if(!(curr->vma_start >= startvfn + npages || curr->vma_end <= startvfn)){
+            return 0;
+        }
+    }list_iterate_end();
+    return 1;
 }
 
 /* Read into 'buf' from the virtual address space of 'map' starting at
@@ -455,8 +582,43 @@ vmmap_is_range_empty(vmmap_t *map, uint32_t startvfn, uint32_t npages)
 int
 vmmap_read(vmmap_t *map, const void *vaddr, void *buf, size_t count)
 {
-        NOT_YET_IMPLEMENTED("VM: vmmap_read");
-        return 0;
+    KASSERT(map != NULL);
+
+    uint32_t pos = 0;
+
+    const void *cur_vaddr = vaddr;
+
+    while(pos < count) {
+        /* get the current vmarea*/
+        uint32_t curr_pn = ADDR_TO_PN(cur_vaddr);
+        vmarea_t *vma = vmmap_lookup(map, curr_pn);
+        KASSERT(vma != NULL);
+
+        /* determine the offset in vm obj and the number of pages to read*/
+        off_t off = vma->vma_off + (curr_pn - vma->vma_start);
+
+        uint32_t pages_to_read = MIN(vma->vma_end - curr_pn, 
+                                    ADDR_TO_PN(PAGE_ALIGN_UP(count - pos)));
+
+        uint32_t i;
+        for(i = 0;i < pages_to_read;++i) {
+            pframe_t *p;
+
+            int get_res = pframe_lookup(vma->vma_obj, off + i, 0, &p);
+            if(get_res < 0) return get_res;
+
+            int offset = (int) cur_vaddr % PAGE_SIZE;
+
+            int read_size = MIN(PAGE_SIZE - offset, count - pos);
+
+            memcpy((char*) buf + pos, (char*) p->pf_addr + offset, read_size);
+
+            pos += read_size;
+            cur_vaddr = (char*) cur_vaddr + read_size;
+        }
+    }
+
+    return 0;
 }
 
 /* Write from 'buf' into the virtual address space of 'map' starting at
@@ -470,8 +632,48 @@ vmmap_read(vmmap_t *map, const void *vaddr, void *buf, size_t count)
 int
 vmmap_write(vmmap_t *map, void *vaddr, const void *buf, size_t count)
 {
-        NOT_YET_IMPLEMENTED("VM: vmmap_write");
-        return 0;
+    KASSERT(map != NULL);
+
+    uint32_t pos = 0;
+
+    const void *cur_vaddr = vaddr;
+
+    while(pos < count) {
+        /* get the current vmarea*/
+        uint32_t curr_pn = ADDR_TO_PN(cur_vaddr);
+        vmarea_t *vma = vmmap_lookup(map, curr_pn);
+        KASSERT(vma != NULL);
+
+        /* determine the offset in vm obj and the number of pages to read*/
+        off_t off = vma->vma_off + (curr_pn - vma->vma_start);
+
+        uint32_t pages_to_read = MIN(vma->vma_end - curr_pn, 
+                                    ADDR_TO_PN(PAGE_ALIGN_UP(count - pos)));
+
+        uint32_t i;
+        for(i = 0;i < pages_to_read;++i) {
+            pframe_t *p;
+
+            int get_res = pframe_lookup(vma->vma_obj, off + i, 0, &p);
+            if(get_res < 0) return get_res;
+
+            int offset = (int) cur_vaddr % PAGE_SIZE;
+
+            int write_size = MIN(PAGE_SIZE - offset, count - pos);
+
+            memcpy((char*) p->pf_addr + offset, (char*) buf + pos, write_size);
+
+            /* dirty the pframe */
+            int dirty_res = pframe_dirty(p);
+            if (dirty_res < 0){
+                return dirty_res;
+            }
+
+            pos += write_size;
+            cur_vaddr = (char*) cur_vaddr + write_size;
+        }   
+    }
+    return 0;
 }
 
 /* a debugging routine: dumps the mappings of the given address space. */
