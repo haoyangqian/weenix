@@ -9,7 +9,7 @@ CFLAGS    += -D__KERNEL__
 ###
 
 HEAD      := $(wildcard include/*/*.h include/*/*/*.h)
-SRCDIR    := main boot util drivers/disk drivers/tty drivers mm proc fs/ramfs fs/s5fs fs vm api test test/kshell entry test/vfstest
+SRCDIR    := main boot util drivers/disk drivers/tty drivers mm proc fs/ramfs fs/s5fs fs vm api test test/kshell entry test/vfstest test/vmtest
 SRC       := $(foreach dr, $(SRCDIR), $(wildcard $(dr)/*.[cS]))
 OBJS      := $(addsuffix .o,$(basename $(SRC)))
 ASM_FILES := proc/kmutex.S proc/sched_helper.S 

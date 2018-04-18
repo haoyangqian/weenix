@@ -12,6 +12,7 @@
 #include "util/debug.h"
 #include "util/init.h"
 #include "util/string.h"
+#include "util/printf.h"
 
 #define NUM_OF_PROC 5
 
