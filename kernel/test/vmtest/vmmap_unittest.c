@@ -44,14 +44,16 @@ vmmap_insert_test() {
     KASSERT(vmmap != NULL && "create vmmap fail.\n");
 
     vmarea_t* vma1 = init_vmarea(MIN_PAGENUM, MIN_PAGENUM + 1, 0);
+    vmarea_t* vma2 = init_vmarea(MIN_PAGENUM + 5, MIN_PAGENUM + 6, 0);
 
     vmmap_insert(vmmap, vma1);
+    vmmap_insert(vmmap, vma2);
 
     char buf[1024];
 
     vmmap_mapping_info(vmmap, buf, 1024);
 
-    dbg(DBG_TESTPASS, "%s\n", buf);
+    dbg(DBG_TESTPASS, "\n%s\n", buf);
 
 }
 
