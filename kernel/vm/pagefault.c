@@ -13,6 +13,7 @@
 #include "mm/mmobj.h"
 #include "mm/pframe.h"
 #include "mm/pagetable.h"
+#include "mm/tlb.h"
 
 #include "vm/pagefault.h"
 #include "vm/vmmap.h"
@@ -30,7 +31,7 @@ check_permission(vmarea_t *vma, uint32_t cause) {
     }
 
     /* if we are not allowed to read */
-    if(!((cause & FAULT_WRITE) || (cause & FAULT_EXEC)) && !(VMA->vma_prot & PROT_READ)) {
+    if(!((cause & FAULT_WRITE) || (cause & FAULT_EXEC)) && !(vma->vma_prot & PROT_READ)) {
         return 0;
     }
     /* if we are not allowed to execute */
@@ -124,8 +125,9 @@ handle_pagefault(uintptr_t vaddr, uint32_t cause)
         ptflags |= PT_WRITE;
     }
 
+    // update the page table and tlb
     pt_map(curproc->p_pagedir, (uintptr_t) PAGE_ALIGN_DOWN(vaddr),
-           pt_virt_to_phys((uintptr_t) p->pf_addr), pdflags, ptflags);
+           pt_virt_to_phys((uintptr_t) pf->pf_addr), pdflags, ptflags);
 
     tlb_flush_all(); // why flush all ?
 }
