@@ -17,6 +17,29 @@
 #include "vm/pagefault.h"
 #include "vm/vmmap.h"
 
+static int 
+check_permission(vmarea_t *vma, uint32_t cause) {
+    /* if we have no access to this vmarea */
+    if(vma->vma_prot & PROT_NONE) {
+        return 0;
+    }
+
+    /* if we are not allowed to write */
+    if ((cause & FAULT_WRITE) && !(vma->vma_prot & PROT_WRITE)){
+        return 0;
+    }
+
+    /* if we are not allowed to read */
+    if(!((cause & FAULT_WRITE) || (cause & FAULT_EXEC)) && !(VMA->vma_prot & PROT_READ)) {
+        return 0;
+    }
+    /* if we are not allowed to execute */
+    if ((cause & FAULT_EXEC) && !(vma->vma_prot & PROT_EXEC)){
+        return 0;
+    }
+    return 1;
+}
+
 /*
  * This gets called by _pt_fault_handler in mm/pagetable.c The
  * calling function has already done a lot of error checking for
@@ -51,5 +74,58 @@
 void
 handle_pagefault(uintptr_t vaddr, uint32_t cause)
 {
-        NOT_YET_IMPLEMENTED("VM: handle_pagefault");
+    /* make sure it is happen in user space */
+    KASSERT(cause & FAULT_USER);
+
+    uint32_t pagenum = ADDR_TO_PN(vaddr);
+    /* get the vmarea*/
+    vmarea_t *vma = vmmap_lookup(curproc->p_vmmap, pagenum);
+
+    if(vma == NULL) {
+        dbginfo(DBG_VMMAP, vmmap_mapping_info, curproc->p_vmmap);
+        do_exit(EFAULT);
+        panic("should not back from do_exit.");
+    }
+
+    if(!check_permission(vma, cause)) {
+        dbginfo(DBG_VMMAP, vmmap_mapping_info, curproc->p_vmmap);
+        do_exit(EFAULT);
+        panic("should not back from do_exit.");
+    }
+
+    pframe_t *pf;
+
+    int forwrite = (cause & PROT_WRITE) ? 1 : 0;
+
+    /* lookup this page */
+    int lookup_res = pframe_lookup(vma->vma_obj, pagenum, forwrite, &pf);
+    if(lookup_res < 0) {
+        do_exit(EFAULT);
+        panic("should not back from do_exit.");
+    }
+
+    /* if this page is for write, dirty the pageframe */
+    if(forwrite) {
+        pframe_pin(pf);
+        int dirty_res = pframe_dirty(pf);
+        pframe_unpin(pf);
+
+        if(dirty_res < 0) {
+            do_exit(EFAULT);
+            panic("should not back from do_exit.");
+        }
+    }
+
+    int pdflags = PD_PRESENT | PD_USER;
+    int ptflags = PT_PRESENT | PT_USER;
+
+    if(forwrite) {
+        pdflags |= PD_WRITE;
+        ptflags |= PT_WRITE;
+    }
+
+    pt_map(curproc->p_pagedir, (uintptr_t) PAGE_ALIGN_DOWN(vaddr),
+           pt_virt_to_phys((uintptr_t) p->pf_addr), pdflags, ptflags);
+
+    tlb_flush_all(); // why flush all ?
 }
