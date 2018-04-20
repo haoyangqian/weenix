@@ -34,8 +34,75 @@ int
 do_mmap(void *addr, size_t len, int prot, int flags,
         int fd, off_t off, void **ret)
 {
-        NOT_YET_IMPLEMENTED("VM: do_mmap");
-        return -1;
+        if(len == 0) return -EINVAL;
+
+        int map_type = flags & MAP_TYPE;
+        if(!(map_type == MAP_SHARED || map_type == MAP_PRIVATE)) return -EINVAL;
+
+        if(!PAGE_ALIGNED(off)) return -EINVAL;
+
+        // if the flag is MAP_FIXED, the address should be provided and page aligned
+        if((flags & MAP_FIXED) && addr == NULL) return -EINVAL;
+        if (!(flags & MAP_ANON) && (flags & MAP_FIXED) && !PAGE_ALIGNED(addr)) return -EINVAL;
+    
+        if(add != NULL && ((uint32_t) addr < USER_MEM_LOW || (uint32_t) addr >= USER_MEM_HIGH) {
+            return -EINVAL;
+        }
+
+        if(len > USER_MEM_HIGH) return -EINVAL;
+
+        if(addr != NULL && (uint32_t) addr + len > USER_MEM_HIGH) return -EINVAL;
+
+        vnode_t *vnode;
+
+        if(flags & MAP_ANON) {
+            vnode = NULL;
+        } else {
+            if(fd < 0 || fd >= NFILES || curproc->p_files[fd] == NULL) {
+                return -EBADF;
+            }
+
+            file_t *file = curproc->p_files[fd];
+            vnode = file->f_vnode;
+
+            if((flag & MAP_PRIVATE) && !(file->f_mode & FMODE_READ)) {
+                return -EACCES;
+            }
+
+            // ?
+            if ((flags & MAP_SHARED) && (prot & PROT_WRITE) &&
+                !((f->f_mode & FMODE_READ) && (f->f_mode & FMODE_WRITE))){
+                return -EACCES;
+            }
+        }
+
+        vmarea_t *vma;
+
+        int map_res = vmmap_map(curproc->p_vmmap, vnode, ADDR_TO_PN(addr), 
+                            (uint32_t)PAGE_ALIGN_UP(len) / PAGE_SIZE, prot, flags, off,
+                            VMMAP_DIR_HILO, &vma);
+
+        if(map_res < 0) {
+            KASSERT(map_res == -ENOMEM);
+        }
+
+        if(map_res == 0) {
+            if(ret != NULL) {
+                *ret = PN_TO_ADDR(vma->vma_start);
+            }
+
+            /* unmap the page table entry and flush the corresponding TLB to
+            *  clear the original cache, and when page fault, call pt_map()
+            */
+            pt_unmap_range(curproc->p_pagedir, (uintptr_t) PN_TO_ADDR(vma->vma_start),
+               (uintptr_t) PN_TO_ADDR(vma->vma_start)
+               + (uintptr_t) PAGE_ALIGN_UP(len));
+
+            tlb_flush_range((uintptr_t) PN_TO_ADDR(vma->vma_start),
+                (uint32_t) PAGE_ALIGN_UP(len) / PAGE_SIZE);
+        }
+
+        return map_res;
 }
 
 
@@ -49,7 +116,18 @@ do_mmap(void *addr, size_t len, int prot, int flags,
 int
 do_munmap(void *addr, size_t len)
 {
-        NOT_YET_IMPLEMENTED("VM: do_munmap");
-        return -1;
+        if((uint32_t) addr < USER_MEM_LOW || (uint32_t) addr + len > USER_MEM_HIGH) {
+            return -EINVAL;
+        }
+
+        if(len == 0) return -EINVAL;
+
+        if(!PAGE_ALIGNED(addr)) return -EINVAL;
+
+        int remove_res = vmmap_remove(curproc->p_vmmap, ADDR_TO_PN(addr), 
+                                        (uint32_t)PAGE_ALIGN_UP(len) / PAGE_SIZE);
+
+        /* unmapping the page table and flushing the TLB have been done in vmmap_remove */
+        return remove_res;
 }
 

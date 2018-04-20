@@ -545,9 +545,9 @@ vmmap_remove(vmmap_t *map, uint32_t lopage, uint32_t npages)
     }list_iterate_end();
 
     /* flush the TLB and unmap pagetable */
-    tlb_flush_range((uint32_t) PN_TO_ADDR(lopage), npages);
-    pt_unmap_range(curproc->p_pagedir, (uint32_t) PN_TO_ADDR(lopage),
-            (uint32_t) PN_TO_ADDR(lopage + npages));
+    tlb_flush_range((uintptr_t) PN_TO_ADDR(lopage), npages);
+    pt_unmap_range(curproc->p_pagedir, (uintptr_t) PN_TO_ADDR(lopage),
+            (uintptr_t) PN_TO_ADDR(lopage + npages));
     
     return 0;
 }
