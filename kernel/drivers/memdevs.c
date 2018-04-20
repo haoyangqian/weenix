@@ -129,6 +129,12 @@ zero_read(bytedev_t *dev, int offset, void *buf, int count)
 static int
 zero_mmap(vnode_t *file, vmarea_t *vma, mmobj_t **ret)
 {
-        NOT_YET_IMPLEMENTED("VM: zero_mmap");
-        return -1;
+        mmobj_t *obj = anon_create();
+
+        if (obj == NULL){
+                return -ENOMEM;
+        }
+
+        *ret = obj;
+        return 0;
 }

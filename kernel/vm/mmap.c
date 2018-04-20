@@ -45,7 +45,7 @@ do_mmap(void *addr, size_t len, int prot, int flags,
         if((flags & MAP_FIXED) && addr == NULL) return -EINVAL;
         if (!(flags & MAP_ANON) && (flags & MAP_FIXED) && !PAGE_ALIGNED(addr)) return -EINVAL;
     
-        if(add != NULL && ((uint32_t) addr < USER_MEM_LOW || (uint32_t) addr >= USER_MEM_HIGH) {
+        if(addr != NULL && ((uint32_t) addr < USER_MEM_LOW || (uint32_t) addr >= USER_MEM_HIGH)) {
             return -EINVAL;
         }
 
@@ -65,13 +65,13 @@ do_mmap(void *addr, size_t len, int prot, int flags,
             file_t *file = curproc->p_files[fd];
             vnode = file->f_vnode;
 
-            if((flag & MAP_PRIVATE) && !(file->f_mode & FMODE_READ)) {
+            if((flags & MAP_PRIVATE) && !(file->f_mode & FMODE_READ)) {
                 return -EACCES;
             }
 
             // ?
             if ((flags & MAP_SHARED) && (prot & PROT_WRITE) &&
-                !((f->f_mode & FMODE_READ) && (f->f_mode & FMODE_WRITE))){
+                !((file->f_mode & FMODE_READ) && (file->f_mode & FMODE_WRITE))){
                 return -EACCES;
             }
         }
