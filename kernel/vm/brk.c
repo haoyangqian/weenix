@@ -1,4 +1,4 @@
-#include "globals.h"
+`#include "globals.h"
 #include "errno.h"
 #include "util/debug.h"
 
@@ -55,6 +55,56 @@
 int
 do_brk(void *addr, void **ret)
 {
-        NOT_YET_IMPLEMENTED("VM: do_brk");
+        KASSERT(ret != NULL);
+
+        if(addr == NULL || addr == curproc->p_brk) {
+            *ret = curproc->p_brk;
+            return 0;
+        }
+
+        if((uint32_t) addr < (uint32_t) curproc->p_start_brk ||
+            (uint32_t) addr > USER_MEM_HIGH) {
+            return -ENOMEM;
+        }
+
+        uint32_t old_brk = (uint32_t) curproc->p_brk;
+
+        uint32_t brk_endpn = ADDR_TO_PN(PAGE_ALIGN_UP(addr));
+        uint32_t old_brk_endpn = ADDR_TO_PN(PAGE_ALIGN_UP(old_brk);
+
+        /* if the pagenumber is not the same, we should modify the vmarea*/
+        if(brk_endpn != old_brk_endpn) {
+            if(brk_endpn < old_brk_endpn) {
+                /* the new brk is smaller than old brk, so we should
+                *  cut off the vmarea. */
+                uint32_t npages = old_brk_endpn - brk_endpn;
+                vmmap_remove(curproc->p_vmmap, brk_endpn, npages);
+            } else {
+                /* the new brk is greater than old brk, so we should
+                *  extend the vmarea. */
+                uint32_t npages = brk_endpn - old_brk_endpn;
+                KASSERT(npages > 0);
+
+                /* if this range is not empty */
+                if(!vmmap_is_range_empty(curproc->p_vmmap, old_brk_endpn, npages)) {
+                    return -ENOMEM;
+                }
+
+                uint32_t start_brk_endpn = ADDR_TO_PN(PAGE_ALIGN_UP(curproc->p_start_brk));
+                vmarea_t *vma = vmmap_lookup(curproc->p_vmmap, start_brk_endpn);
+
+                /* if there's no vmarea before, mmap a new one */
+                if(vma == NULL) {
+                    vmmap_map(curproc->p_vmmap, NULL, start_brk_endpn, brk_endpn - start_brk_endpn,
+                                PROT_READ | PROT_WRITE, MAP_PRIVATE, 0, VMMAP_DIR_LOHI, &vma);
+                } else {
+                    KASSERT(brk_endpn >= vma->vma_end);
+                    vma->vma_end = brk_endpn;
+                }
+            }
+        }
+
+        curproc->p_brk = addr;
+        *ret = addr;
         return 0;
 }
