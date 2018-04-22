@@ -180,6 +180,8 @@ shadow_fillpage(mmobj_t *o, pframe_t *pf)
         KASSERT(p != NULL);
         pframe_pin(pf);
         memcpy(pf->pf_addr, p->pf_addr, PAGE_SIZE);
+
+        /* dirty ? */
         return 0;
 }
 

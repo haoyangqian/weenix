@@ -1,4 +1,4 @@
-`#include "globals.h"
+#include "globals.h"
 #include "errno.h"
 #include "util/debug.h"
 
@@ -70,7 +70,7 @@ do_brk(void *addr, void **ret)
         uint32_t old_brk = (uint32_t) curproc->p_brk;
 
         uint32_t brk_endpn = ADDR_TO_PN(PAGE_ALIGN_UP(addr));
-        uint32_t old_brk_endpn = ADDR_TO_PN(PAGE_ALIGN_UP(old_brk);
+        uint32_t old_brk_endpn = ADDR_TO_PN(PAGE_ALIGN_UP(old_brk));
 
         /* if the pagenumber is not the same, we should modify the vmarea*/
         if(brk_endpn != old_brk_endpn) {

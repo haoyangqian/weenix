@@ -101,6 +101,8 @@ handle_pagefault(uintptr_t vaddr, uint32_t cause)
     /* lookup this page */
     int lookup_res = pframe_lookup(vma->vma_obj, pagenum, forwrite, &pf);
     if(lookup_res < 0) {
+        dbg(DBG_VMMAP, "failed to lookup the pframe.");
+        dbginfo(DBG_VMMAP, vmmap_mapping_info, curproc->p_vmmap);
         do_exit(EFAULT);
         panic("should not back from do_exit.");
     }

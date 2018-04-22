@@ -319,15 +319,14 @@ static void *
 initproc_run(int arg1, void *arg2)
 {
 
-    char *args[2] = {"init", NULL};
+    char *args[2] = {"segfault", NULL};
     char *envp[1] = {NULL};
+    kernel_execve("/usr/bin/segfault", args, envp);
     //run_proc_test();
     //run_driver_test();
-    //vfstest_main(1, NULL);
+    vfstest_main(1, NULL);
     //s5fs_test_main();
     //run_vmmap_unit_test();
-    kernel_execve("/bin/uname", args, envp);
-    //do_exit(0);
 
     return NULL;
 }

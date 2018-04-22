@@ -108,7 +108,7 @@ vmmap_destroy(vmmap_t *map)
 void
 vmmap_insert(vmmap_t *map, vmarea_t *newvma)
 {   
-
+        //dbg(DBG_VMMAP, "vmmap_insert: start: %s end: %s\n", newvma->vma_start, newvma->vma_end);
         KASSERT(map != NULL);
         KASSERT(newvma != NULL);
         KASSERT(newvma->vma_start < newvma->vma_end);
@@ -326,7 +326,10 @@ vmmap_clone(vmmap_t *map)
 int
 vmmap_map(vmmap_t *map, vnode_t *file, uint32_t lopage, uint32_t npages,
           int prot, int flags, off_t off, int dir, vmarea_t **new)
-{
+{       
+        dbg(DBG_VMMAP, "before vmmap_map, lopage: %d npages: %d page range: %#.8x-%#.8x\n", 
+            lopage,  npages, lopage << PAGE_SHIFT, (lopage + npages) << PAGE_SHIFT);
+        dbginfo(DBG_VMMAP, vmmap_mapping_info, map);
         /* make sure all the input is valid */
         KASSERT(map != NULL);
         KASSERT(prot == PROT_NONE || prot == PROT_READ || prot == PROT_WRITE
@@ -367,12 +370,17 @@ vmmap_map(vmmap_t *map, vnode_t *file, uint32_t lopage, uint32_t npages,
         list_link_init(&new_vma->vma_plink);
         list_link_init(&new_vma->vma_olink);
 
+        dbg(DBG_VMMAP, "new vma start: %#.8x-%#.8x\n", new_vma->vma_start << PAGE_SHIFT, new_vma->vma_end << PAGE_SHIFT);
+        
         /* unmap the original mapping*/
         int remove_res = vmmap_remove(map, start_page, npages);
         if(remove_res < 0){
             vmarea_free(new_vma);
             return remove_res;
         }
+
+        dbg(DBG_VMMAP, "after vmmap_remove.\n");
+        dbginfo(DBG_VMMAP, vmmap_mapping_info, map);
 
         /* get the new mmobj */
         mmobj_t *new_mmobj;
@@ -428,11 +436,15 @@ vmmap_map(vmmap_t *map, vnode_t *file, uint32_t lopage, uint32_t npages,
 
         vmmap_insert(map, new_vma);
 
+        dbg(DBG_VMMAP, "after vmmap_insert.\n");
+        dbginfo(DBG_VMMAP, vmmap_mapping_info, map);
         /* If 'new' is non-NULL a pointer to the new vmarea_t should be stored in it */
         if (new != NULL){
             *new = new_vma;
         }
 
+        dbg(DBG_VMMAP, "after vmmap_map.\n");
+        dbginfo(DBG_VMMAP, vmmap_mapping_info, map);
         return 0;
 }
 
@@ -506,8 +518,16 @@ vmmap_remove(vmmap_t *map, uint32_t lopage, uint32_t npages)
 
     vmarea_t *curr;
     list_iterate_begin(&map->vmm_list, curr, vmarea_t, vma_plink){
+        /* case 0, no overlap */
+        if(curr->vma_start >= unmap_end || curr->vma_end <= unmap_start) {
+            /* ***** [  ], could break*/
+            if(curr->vma_start >= unmap_end) break;
+
+            /* [  ] ******, should continue iteration */
+            KASSERT(curr->vma_end <= unmap_start);
+        }
         /* case 1, split to two vmarea */
-        if(curr->vma_start < unmap_start && curr->vma_end > unmap_end) {
+        else if(curr->vma_start < unmap_start && curr->vma_end > unmap_end) {
             vmarea_t *next_vma = vmarea_clone(curr);
 
             if(next_vma == NULL) {
@@ -536,11 +556,7 @@ vmmap_remove(vmmap_t *map, uint32_t lopage, uint32_t npages)
             vmarea_cleanup(curr);
             //don't break
         } else {
-            /* ***** [  ], could break*/
-            if(curr->vma_start >= unmap_end) break;
-
-            /* [  ] ******, should continue iteration */
-            KASSERT(curr->vma_end <= unmap_start);
+            panic("no way to get here!");
         }
     }list_iterate_end();
 
