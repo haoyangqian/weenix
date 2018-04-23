@@ -86,13 +86,18 @@ anon_put(mmobj_t *o)
         KASSERT(o->mmo_ops == &anon_mmobj_ops);
         KASSERT(o->mmo_refcount > o->mmo_nrespages);
 
-        if(--o->mmo_refcount == o->mmo_nrespages) {
+        /* note that do not directly decrement the refcount !!!!!! */
+        if(o->mmo_refcount == o->mmo_nrespages + 1) {
                 pframe_t *p;
                 
                 list_iterate_begin(&o->mmo_respages, p, pframe_t, pf_olink){
                         pframe_unpin(p);
                         pframe_free(p);
                 } list_iterate_end();  
+
+                slab_obj_free(anon_allocator, (void *) o);
+        } else {
+                --o->mmo_refcount;
         }
 }
 

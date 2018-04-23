@@ -181,7 +181,7 @@ tty_echo(tty_driver_t *driver, const char *out)
     if(out == NULL) return;
     /* save the address in order to free */
     void *to_free = (void *) out;
-    while(*out != '0') {
+    while(*out != '\0') {
         driver->ttd_ops->provide_char(driver, *out);
         out++;
     }

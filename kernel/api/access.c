@@ -126,11 +126,20 @@ int addr_perm(struct proc *p, const void *vaddr, int perm)
 
     if(vma == NULL) return 0;
 
-    if((perm & PROT_READ) && !(vma->vma_prot & PROT_READ)) return 0;
+    if((perm & PROT_READ) && !(vma->vma_prot & PROT_READ)) {
+        dbg(DBG_VM, "read perm: %d vma prot: %d \n", perm, vma->vma_prot);
+        return 0;
+    }
+    
+    if((perm & PROT_WRITE) && !(vma->vma_prot & PROT_WRITE)) {
+        dbg(DBG_VM, "write perm: %d vma prot: %d \n", perm, vma->vma_prot);
+        return 0;
+    }
 
-    if((perm & PROT_WRITE) && !(vma->vma_prot & PROT_WRITE)) return 0;
-
-    if((perm & PROT_EXEC) && !(vma->vma_prot & PROT_EXEC)) return 0;
+    if((perm & PROT_EXEC) && !(vma->vma_prot & PROT_EXEC)) {
+        dbg(DBG_VM, "exec perm: %d vma prot: %d \n", perm, vma->vma_prot);
+        return 0;
+    }
 
     return 1;
 }

@@ -99,7 +99,8 @@ handle_pagefault(uintptr_t vaddr, uint32_t cause)
     int forwrite = (cause & PROT_WRITE) ? 1 : 0;
 
     /* lookup this page */
-    int lookup_res = pframe_lookup(vma->vma_obj, pagenum, forwrite, &pf);
+    int lookup_res = pframe_lookup(vma->vma_obj, pagenum - vma->vma_start + vma->vma_off,
+                                     forwrite, &pf);
     if(lookup_res < 0) {
         dbg(DBG_VMMAP, "failed to lookup the pframe.");
         dbginfo(DBG_VMMAP, vmmap_mapping_info, curproc->p_vmmap);
@@ -131,5 +132,5 @@ handle_pagefault(uintptr_t vaddr, uint32_t cause)
     pt_map(curproc->p_pagedir, (uintptr_t) PAGE_ALIGN_DOWN(vaddr),
            pt_virt_to_phys((uintptr_t) pf->pf_addr), pdflags, ptflags);
 
-    tlb_flush_all(); // why flush all ?
+    //tlb_flush_all(); // why flush all ?
 }
