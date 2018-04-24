@@ -320,9 +320,9 @@ static void *
 initproc_run(int arg1, void *arg2)
 {
 
-    char *args[2] = {"name", NULL};
-    char *envp[1] = {NULL};
-    kernel_execve("/usr/bin/hello", args, envp);
+    char *args[2] = {"name1", NULL};
+    char *envp[2] = {"enviroment", NULL};
+    kernel_execve("/usr/bin/args", args, envp);
     //run_proc_test();
     //run_driver_test();
     //vfstest_main(1, NULL);

@@ -79,7 +79,7 @@ sys_read(read_args_t *arg)
 
             if(bytes_read < 0) {
                 page_free(buf);
-                curthr->kt_errno = bytes_read;
+                curthr->kt_errno = -bytes_read;
                 return -1;
             }
 
@@ -88,7 +88,7 @@ sys_read(read_args_t *arg)
 
             if(err < 0) {
                 page_free(buf);
-                curthr->kt_errno = err;
+                curthr->kt_errno = -err;
                 return -1;
             }
 
@@ -132,7 +132,7 @@ sys_write(write_args_t *arg)
 
             if(err < 0) {
                 page_free(buf);
-                curthr->kt_errno = err;
+                curthr->kt_errno = -err;
                 return -1;
             }
 
@@ -141,7 +141,7 @@ sys_write(write_args_t *arg)
 
             if(bytes_write < 0) {
                 page_free(buf);
-                curthr->kt_errno = bytes_write;
+                curthr->kt_errno = -bytes_write;
                 return -1;
             }
 
@@ -183,14 +183,14 @@ sys_getdents(getdents_args_t *arg)
             int bytes_read = do_getdent(kern_args.fd, &d);
 
             if(bytes_read < 0) {
-                curthr->kt_errno = bytes_read;
+                curthr->kt_errno = -bytes_read;
                 return -1;
             } else if(bytes_read == 0) break;
 
             int err = copy_to_user(kern_args.dirp + i, &d, bytes_read);
 
             if(err < 0) {
-                curthr->kt_errno = err;
+                curthr->kt_errno = -err;
                 return -1;
             }
 

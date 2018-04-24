@@ -136,7 +136,7 @@ copy_vmmap(proc_t *p) {
     clone_vmmap->vmm_proc = p;
 
     list_t *old_vma_list = &curproc->p_vmmap->vmm_list;
-    list_t *clone_vma_list = &p->p_vmmap->vmm_list;
+    list_t *clone_vma_list = &clone_vmmap->vmm_list;
 
     list_link_t *old_cur = old_vma_list->l_next;
     list_link_t *clone_cur = clone_vma_list->l_next;

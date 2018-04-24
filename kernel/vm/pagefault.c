@@ -132,5 +132,5 @@ handle_pagefault(uintptr_t vaddr, uint32_t cause)
     pt_map(curproc->p_pagedir, (uintptr_t) PAGE_ALIGN_DOWN(vaddr),
            pt_virt_to_phys((uintptr_t) pf->pf_addr), pdflags, ptflags);
 
-    //tlb_flush_all(); // why flush all ?
+    //tlb_flush_all();   ???
 }

@@ -92,7 +92,7 @@ kthread_create(struct proc *p, kthread_func_t func, long arg1, void *arg2)
         /* set attribute */
         thr->kt_kstack = stack;
         thr->kt_proc = p;
-        thr->kt_cancelled = 0;
+        thr->kt_errno = thr->kt_cancelled = 0;
         thr->kt_wchan = NULL;
         thr->kt_state = KT_NO_STATE;
 

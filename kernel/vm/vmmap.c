@@ -660,17 +660,17 @@ vmmap_write(vmmap_t *map, void *vaddr, const void *buf, size_t count)
         vmarea_t *vma = vmmap_lookup(map, curr_pn);
         KASSERT(vma != NULL);
 
-        /* determine the offset in vm obj and the number of pages to read*/
+        /* determine the offset in vm obj and the number of pages to write*/
         off_t off = vma->vma_off + (curr_pn - vma->vma_start);
 
-        uint32_t pages_to_read = MIN(vma->vma_end - curr_pn, 
+        uint32_t pages_to_writes = MIN(vma->vma_end - curr_pn, 
                                     ADDR_TO_PN(PAGE_ALIGN_UP(count - pos)));
 
         uint32_t i;
-        for(i = 0;i < pages_to_read;++i) {
+        for(i = 0;i < pages_to_writes;++i) {
             pframe_t *p;
 
-            int get_res = pframe_lookup(vma->vma_obj, off + i, 0, &p);
+            int get_res = pframe_lookup(vma->vma_obj, off + i, 1, &p);
             if(get_res < 0) return get_res;
 
             int offset = (int) cur_vaddr % PAGE_SIZE;
