@@ -52,7 +52,7 @@
 # first, and make sure to make a copy of your working Weenix before you
 # go breaking it, which we promise you will happen.
 
-         SHADOWD=1 # shadow page cleanup
+         SHADOWD=0 # shadow page cleanup
         MOUNTING=0 # be able to mount multiple file systems
           GETCWD=0 # getcwd(3) syscall-like functionality
         UPREEMPT=0 # userland preemption

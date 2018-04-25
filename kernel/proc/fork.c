@@ -297,10 +297,10 @@ do_fork(struct regs *regs)
         * some entries marked as "writable", but we need "copy on write", so we would
         * like access to these pages to cause a trap to page fault handler. */
         tlb_flush_all();
-        pt_unmap_range(curproc->p_pagedir, USER_MEM_LOW, USER_MEM_HIGH);
+        //pt_unmap_range(curproc->p_pagedir, USER_MEM_LOW, USER_MEM_HIGH); // ?
 
         /* set working directory and brk values */
-        child_proc->p_cwd       = curproc->p_cwd;
+        child_proc->p_cwd == curproc->p_cwd;
         if(curproc->p_cwd != NULL) {
             vref(curproc->p_cwd);
         }
