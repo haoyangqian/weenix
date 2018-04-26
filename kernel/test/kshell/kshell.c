@@ -64,6 +64,9 @@ static __attribute__((unused)) void kshell_init()
         kshell_add_command("stat", kshell_stat, "display file status");
 #endif
 
+#ifdef __VM__
+        kshell_add_command("exec", kshell_exec, "executes a given command");
+#endif
         kshell_add_command("exit", kshell_exit, "exits the shell");
 }
 init_func(kshell_init);

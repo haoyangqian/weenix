@@ -320,10 +320,22 @@ static void *
 initproc_run(int arg1, void *arg2)
 {
 
-    char *args[2] = {"name1", NULL};
-    char *envp[2] = {"enviroment", NULL};
-    //kernel_execve("/sbin/init", args, envp);
-    kernel_execve("/bin/ls", args, envp);
+    int err = 0;
+
+    kshell_t *ksh = kshell_create(0);
+
+    KASSERT(ksh && "did not create a kernel shell as expected");
+   
+    while ((err = kshell_execute_next(ksh)) > 0);
+    KASSERT(err == 0 && "kernel shell exited with an error\n");
+    kshell_destroy(ksh);
+
+
+    // char *args[2] = {"name1", NULL};
+    // char *envp[2] = {"enviroment", NULL};
+    // //kernel_execve("/sbin/init", args, envp);
+    // kernel_execve("/usr/bin/forktest", args, envp);
+    
     //run_proc_test();
     //run_driver_test();
     //vfstest_main(1, NULL);

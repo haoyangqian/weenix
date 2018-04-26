@@ -227,7 +227,7 @@ create_thread(proc_t *p, struct regs *regs){
     regs->r_eax = 0;
 
     /* setup the stack for new thread */
-    uint32_t esp = fork_setup_stack(regs, newthr->kt_kstack);
+    uint32_t esp = fork_setup_stack(regs, (void*) newthr->kt_kstack);
     
     /* set up new context for new thread */
     newthr->kt_ctx.c_pdptr  = p->p_pagedir;
@@ -297,10 +297,10 @@ do_fork(struct regs *regs)
         * some entries marked as "writable", but we need "copy on write", so we would
         * like access to these pages to cause a trap to page fault handler. */
         tlb_flush_all();
-        //pt_unmap_range(curproc->p_pagedir, USER_MEM_LOW, USER_MEM_HIGH); // ?
+        pt_unmap_range(curproc->p_pagedir, USER_MEM_LOW, USER_MEM_HIGH); // ?
 
         /* set working directory and brk values */
-        child_proc->p_cwd == curproc->p_cwd;
+        child_proc->p_cwd = curproc->p_cwd;
         if(curproc->p_cwd != NULL) {
             vref(curproc->p_cwd);
         }

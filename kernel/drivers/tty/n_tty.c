@@ -20,6 +20,7 @@
 #define IS_NEWLINE(c) (((c) == '\r') || (c == '\n'))
 #define IS_BACKSPACE(c) (((c) == 0x08) || ((c) == 0x7F))
 #define IS_ECS(c) (((c) == 0x04))
+#define SPACE 0x20
 
 static void n_tty_attach(tty_ldisc_t *ldisc, tty_device_t *tty);
 static void n_tty_detach(tty_ldisc_t *ldisc, tty_device_t *tty);
@@ -195,7 +196,9 @@ n_tty_receive_char(tty_ldisc_t *ldisc, char c)
         const char* ret = n_tty_process_char(ldisc, c);
         /* if it is a backspace */
         if(IS_BACKSPACE(c)) {
-                ntty->ntty_rawtail = (ntty->ntty_rawtail - 1) % TTY_BUF_SIZE;
+                if(buf_has_raw(ntty)) {
+                        ntty->ntty_rawtail = (ntty->ntty_rawtail - 1) % TTY_BUF_SIZE;
+                }
         } else if(buf_full(ntty)) {
                 /* do nothing */
         } else if(IS_NEWLINE(c)){
@@ -222,7 +225,17 @@ n_tty_process_char(tty_ldisc_t *ldisc, char c)
 {
         n_tty_t *ntty = ldisc_to_ntty(ldisc);
         char *ret;
-        if(buf_full(ntty)) {
+        if(IS_BACKSPACE(c)) {
+                if(!buf_has_raw(ntty)) return NULL;
+
+                ret = kmalloc(4 * sizeof(char));
+                if(ret == NULL) return NULL;
+                ret[0] = c;
+                ret[1] = SPACE;
+                ret[2] = c;
+                ret[3] = '\0';
+        }
+        else if(buf_full(ntty)) {
                 ret = kmalloc(sizeof(char));
                 if(ret == NULL) return NULL;
                 ret[0] = '\0';

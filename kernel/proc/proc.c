@@ -143,7 +143,9 @@ proc_create(char *name)
         p->p_files[i] = NULL;
     }
 
-    p->p_cwd = NULL;
+    if(p->p_pid > 2) {
+        p->p_cwd = p->p_pproc->p_cwd;
+    }
 #endif
 
 #ifdef __VM__
@@ -229,11 +231,8 @@ proc_cleanup(int status)
         }
     }
 
-    if (curproc->p_pid != 2 && curproc->p_pid != 3){
-        KASSERT(curproc->p_cwd != NULL);
-        vput(curproc->p_cwd);
-        curproc->p_cwd = NULL;
-    }
+    if(curproc->p_cwd != NULL) vput(curproc->p_cwd);
+    curproc->p_cwd = NULL;
 #endif
 
 #ifdef __VM__

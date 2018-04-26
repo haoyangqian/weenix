@@ -9,6 +9,8 @@
 #include "fs/file.h"
 #include "fs/vfs_syscall.h"
 #include "fs/vnode.h"
+
+#include "proc/proc.h"
 #endif
 
 #include "test/kshell/io.h"
@@ -319,5 +321,50 @@ int kshell_stat(kshell_t *ksh, int argc, char **argv)
         }
 
         return exit_val;
+}
+#endif
+
+
+#ifdef __VM__
+static void * _exec_func(int arg1, void *arg2){
+    char **argv = (char **) arg2;
+
+    argv[arg1] = NULL;
+
+    char *func_to_run = argv[1];
+
+    /* open stdin, stdout, stderr */
+    KASSERT(do_open("/dev/tty0", O_RDONLY) == 0);
+    KASSERT(do_open("/dev/tty0", O_WRONLY) == 1);
+    KASSERT(do_open("/dev/tty0", O_WRONLY) == 2);
+ 
+    char *args[1] = {NULL};
+    char *envp[1] = {NULL};
+    kernel_execve(func_to_run, argv + 1, envp);
+
+    panic("returned when you weren't supposed to!");
+
+    return NULL;
+}
+
+int kshell_exec(kshell_t *ksh, int argc, char **argv){
+    KASSERT(NULL != ksh);
+    KASSERT(NULL != argv);
+
+    if (argc < 2){
+        kprintf(ksh, "Usage: exec <command>\n");
+        return 1;
+    }
+
+    proc_t *execproc = proc_create("exec_proc");
+
+    kthread_t *execthread = kthread_create(execproc, _exec_func, argc, argv);
+
+    sched_make_runnable(execthread);
+
+    int status;
+    do_waitpid(execproc->p_pid, 0, &status);
+    dbg(DBG_VM, "child status: %d\n", execproc->p_status);
+    return 0;
 }
 #endif

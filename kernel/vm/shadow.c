@@ -173,7 +173,7 @@ static int
 shadow_fillpage(mmobj_t *o, pframe_t *pf)
 {
         pframe_t *p = NULL;
-        mmobj_t *curr = o;
+        mmobj_t *curr = o->mmo_shadowed;
 
         /* we go down until the bottom object */
         while(p == NULL && curr != o->mmo_un.mmo_bottom_obj) {

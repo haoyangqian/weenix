@@ -18,3 +18,7 @@ KSHELL_CMD(rmdir);
 KSHELL_CMD(mkdir);
 KSHELL_CMD(stat);
 #endif
+
+#ifdef __VM__
+KSHELL_CMD(exec);
+#endif
