@@ -204,7 +204,7 @@ vmmap_find_range(vmmap_t *map, uint32_t npages, int dir)
 
         vmarea_t *prev = NULL;
 
-        for(link = list->l_next; link != list; link = link->l_prev) {
+        for(link = list->l_prev; link != list; link = link->l_prev) {
             vmarea_t *curr = list_item(link, vmarea_t, vma_plink);
 
             if(prev != NULL && (prev->vma_start - curr->vma_end) >= npages) {
@@ -213,6 +213,8 @@ vmmap_find_range(vmmap_t *map, uint32_t npages, int dir)
 
             prev = curr;
         }
+
+        if(prev->vma_start - MIN_PAGENUM >= npages) return prev->vma_start - npages;
 
     } else {
         list_t *list = &map->vmm_list;
@@ -229,6 +231,8 @@ vmmap_find_range(vmmap_t *map, uint32_t npages, int dir)
 
             prev = curr;
         }
+
+        if(MAX_PAGENUM - prev->vma_end >= npages) return prev->vma_end;
     }
 
     /* no such contiguous space was found. */

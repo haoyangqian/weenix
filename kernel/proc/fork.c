@@ -300,10 +300,7 @@ do_fork(struct regs *regs)
         pt_unmap_range(curproc->p_pagedir, USER_MEM_LOW, USER_MEM_HIGH); // ?
 
         /* set working directory and brk values */
-        child_proc->p_cwd = curproc->p_cwd;
-        if(curproc->p_cwd != NULL) {
-            vref(curproc->p_cwd);
-        }
+        KASSERT(child_proc->p_cwd = curproc->p_cwd);
         child_proc->p_brk       = curproc->p_brk;
         child_proc->p_start_brk = curproc->p_start_brk;
 

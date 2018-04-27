@@ -138,6 +138,8 @@ shadow_put(mmobj_t *o)
 static int
 shadow_lookuppage(mmobj_t *o, uint32_t pagenum, int forwrite, pframe_t **pf)
 {
+        /* if it is for write, no need to track down to the bottom, just 
+        *  get the page frame in the top object and update it. */
         if(forwrite) {
                 return pframe_get(o, pagenum, pf);
         }
@@ -146,16 +148,16 @@ shadow_lookuppage(mmobj_t *o, uint32_t pagenum, int forwrite, pframe_t **pf)
         mmobj_t *curr = o;
         while(p == NULL && curr->mmo_shadowed != NULL){
                 p = pframe_get_resident(curr, pagenum);
+                if(p != NULL) {
+                        *pf = p;
+                        return 0;
+                }
                 curr = curr->mmo_shadowed;
         }
 
-        if(p == NULL) {
-                return pframe_lookup(curr, pagenum, 0, pf);
-        }
-
-        *pf = p;
-        return 0;
-
+        /* if we get there, we must hit the bottom, which is definitely 
+        *  not a shadow object*/
+        return pframe_lookup(curr, pagenum, 0, pf);
 }
 
 /* As per the specification in mmobj.h, fill the page frame starting
@@ -175,16 +177,15 @@ shadow_fillpage(mmobj_t *o, pframe_t *pf)
         pframe_t *p = NULL;
         mmobj_t *curr = o->mmo_shadowed;
 
-        /* we go down until the bottom object */
+        /* we go down until we found the resident page or hit the bottom object */
         while(p == NULL && curr != o->mmo_un.mmo_bottom_obj) {
                 p = pframe_get_resident(curr, pf->pf_pagenum);
                 curr = curr->mmo_shadowed;
         }
 
         if(p == NULL) {
-                KASSERT(curr == o->mmo_un.mmo_bottom_obj); // we must get to the bottom
+                KASSERT(curr == o->mmo_un.mmo_bottom_obj); // we must reach the bottom
                 int look_res = pframe_lookup(curr, pf->pf_pagenum, 1, &p);
-
                 if(look_res < 0) return look_res;
         }
 

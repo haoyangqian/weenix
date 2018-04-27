@@ -34,6 +34,12 @@ static slab_allocator_t *proc_allocator = NULL;
 static list_t _proc_list;
 static proc_t *proc_initproc = NULL; /* Pointer to the init process (PID 1) */
 
+#ifdef __Shadow__
+    #define SYS_PID 3
+#else
+    #define SYS_PID 2
+#endif
+
 void
 proc_init()
 {
@@ -143,9 +149,13 @@ proc_create(char *name)
         p->p_files[i] = NULL;
     }
 
-    if(p->p_pid > 2) {
+    if(p->p_pid > SYS_PID) {
         p->p_cwd = p->p_pproc->p_cwd;
+        vref(p->p_cwd);
+    } else {
+        p->p_cwd = NULL;
     }
+
 #endif
 
 #ifdef __VM__
@@ -231,9 +241,14 @@ proc_cleanup(int status)
         }
     }
 
-    if(curproc->p_cwd != NULL) vput(curproc->p_cwd);
-    curproc->p_cwd = NULL;
+    if(curproc->p_pid > SYS_PID || curproc->p_pid < 2) {
+        KASSERT(curproc->p_cwd != NULL);
+        vput(curproc->p_cwd);
+        curproc->p_cwd = NULL;
+    }
+
 #endif
+
 
 #ifdef __VM__
     vmmap_destroy(curproc->p_vmmap);
