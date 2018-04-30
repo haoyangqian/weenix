@@ -116,7 +116,7 @@ do_mmap(void *addr, size_t len, int prot, int flags,
 int
 do_munmap(void *addr, size_t len)
 {
-        if((uint32_t) addr < USER_MEM_LOW || (uint32_t) addr + len > USER_MEM_HIGH) {
+        if((uint32_t) addr < USER_MEM_LOW || USER_MEM_HIGH - (uint32_t) addr < len) {
             return -EINVAL;
         }
 

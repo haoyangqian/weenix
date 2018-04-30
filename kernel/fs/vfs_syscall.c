@@ -507,6 +507,12 @@ do_link(const char *from, const char *to)
             return open_ret;
         }
 
+        /* from is a directory */
+        if(from_node->vn_ops->mkdir != NULL) {
+            vput(from_node);
+            return -EPERM;
+        }
+        
         size_t namelen;
         const char* name;
         vnode_t* to_node; // dir vnode

@@ -236,6 +236,7 @@ static void test_vmmap_remove_simple(){
     zero_to_onehundred.vma_obj = NULL;
     zero_to_onehundred.vma_prot = PROT_NONE;
     list_link_init(&zero_to_onehundred.vma_plink);
+    list_link_init(&zero_to_onehundred.vma_olink);
     zero_to_onehundred.vma_flags = MAP_SHARED;
 
     vmarea_t onefifty_to_onesixty;
@@ -452,9 +453,9 @@ static void test_vmmap_remove(){
 void run_vmmap_unit_test(){
     dbg(DBG_TEST, "starting vmm tests\n");
 
-    test_vmm_find_range();
-    test_vmmap_is_range_empty();
-    //test_vmmap_remove();
+    //test_vmm_find_range();
+    //test_vmmap_is_range_empty();
+    test_vmmap_remove();
 
     dbg(DBG_TESTPASS, "all vmm tests passed!\n");
 }

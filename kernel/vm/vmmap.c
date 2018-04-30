@@ -475,7 +475,9 @@ static vmarea_t *vmarea_clone(vmarea_t *old_vma){
 
     list_link_init(&new_vma->vma_plink);
     list_link_init(&new_vma->vma_olink);
-    list_insert_before(&old_vma->vma_olink, &new_vma->vma_olink);
+    if(list_link_is_linked(&old_vma->vma_olink)) {
+        list_insert_before(&old_vma->vma_olink, &new_vma->vma_olink);
+    }
 
     return new_vma;
 }
@@ -512,6 +514,8 @@ static vmarea_t *vmarea_clone(vmarea_t *old_vma){
 int
 vmmap_remove(vmmap_t *map, uint32_t lopage, uint32_t npages)
 {
+    if(npages == 0) return 0;
+    
     KASSERT(map != NULL);
     KASSERT(lopage >= MIN_PAGENUM);
     KASSERT(npages < TOTAL_RANGE);
@@ -552,19 +556,20 @@ vmmap_remove(vmmap_t *map, uint32_t lopage, uint32_t npages)
         }
         /* case 3, cur off the first half of vmarea*/
         else if(curr->vma_start >= unmap_start && curr->vma_end > unmap_end) {
-            curr->vma_start = unmap_end;
             curr->vma_off += (unmap_end - curr->vma_start); 
+            curr->vma_start = unmap_end;
         }
         /* case 4, just free the vmarea */
         else if(curr->vma_start >= unmap_start && curr->vma_end <= unmap_end) {
             vmarea_cleanup(curr);
+            //list_remove(&curr->vma_plink); /* works only for tests!!! */
             //don't break
         } else {
             panic("no way to get here!");
         }
     }list_iterate_end();
 
-    /* flush the TLB and unmap pagetable */
+    /* flush the TLB and unmap pagetable, when in tests, uncomment these */
     tlb_flush_range((uintptr_t) PN_TO_ADDR(lopage), npages);
     pt_unmap_range(curproc->p_pagedir, (uintptr_t) PN_TO_ADDR(lopage),
             (uintptr_t) PN_TO_ADDR(lopage + npages));
