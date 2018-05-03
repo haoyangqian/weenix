@@ -47,7 +47,6 @@
 #include "test/s5fs_test.h"
 #include "test/proc_test.h"
 #include "test/driver_test.h"
-#include "test/vmtest/vmmap_unittest.h"
 
 GDB_DEFINE_HOOK(boot)
 GDB_DEFINE_HOOK(initialized)
@@ -340,7 +339,6 @@ initproc_run(int arg1, void *arg2)
     //run_driver_test();
     //vfstest_main(1, NULL);
     //s5fs_test_main();
-    //run_vmmap_unit_test();
 
     return NULL;
 }
